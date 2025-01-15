@@ -17,43 +17,105 @@ struct BlockReduce2d
 
     CK_TILE_DEVICE constexpr BlockReduce2d() {}
 
+//     template <typename XDistributedTensor_,
+//               typename YDistributedTensor_,
+//               typename ReduceFunc,
+//               typename ReducePacksPerXDim = uniform_sequence_gen_t<2, 1>>
+//     CK_TILE_DEVICE void operator()(const XDistributedTensor_& x_tensor,
+//                                    YDistributedTensor_& y_tensor,
+//                                    const ReduceFunc& reduce_func,
+//                                    ReducePacksPerXDim = {})
+//     {
+//         sweep_tile<XDistributedTensor_>(
+//             [&](auto... idx_) {
+//                 constexpr auto idx_0 = make_tuple(make_tuple(idx_[number<0>{}]...)[number<0>{}]);
+//                 y_tensor(idx_0)      = reduce_func(
+//                     y_tensor(idx_0), ck_tile::type_convert<ComputeDataType>(x_tensor[idx_])...);
+//             },
+//             ReducePacksPerXDim{});
+// #if 0
+//         constexpr auto I0 = number<0>{};
+//         constexpr auto I1 = number<1>{};
+//         constexpr auto spans = XDistributedTensor_::get_distributed_spans();
+
+//         // FIXME: hard coded to reduce 2nd axis
+//         sweep_tile_span(spans[I0], [&](auto dstr_idx_i0) {
+//             constexpr auto y_dstr_idx = make_tuple(dstr_idx_i0);
+
+//             auto y = y_tensor[y_dstr_idx];
+
+//             sweep_tile_span(spans[I1], [&](auto dstr_idx_i1) {
+//                 constexpr auto in_dstr_idx = make_tuple(dstr_idx_i0, dstr_idx_i1);
+//                 const auto x = ck_tile::type_convert<ComputeDataType>(x_tensor[in_dstr_idx]);
+
+//                 y = reduce_func(y, x);
+//             });
+
+//             y_tensor(y_dstr_idx) = y;
+//         });
+// #endif
+//     }
+
     template <typename XDistributedTensor_,
               typename YDistributedTensor_,
-              typename ReduceFunc,
-              typename ReducePacksPerXDim = uniform_sequence_gen_t<2, 1>>
-    CK_TILE_DEVICE void operator()(const XDistributedTensor_& x_tensor,
-                                   YDistributedTensor_& y_tensor,
-                                   const ReduceFunc& reduce_func,
-                                   ReducePacksPerXDim = {})
+              typename ReduceFunc>
+    CK_TILE_DEVICE void operator()([[maybe_unused]] const XDistributedTensor_& xa_tensor,
+                                   [[maybe_unused]] const XDistributedTensor_& xb_tensor,
+                                   [[maybe_unused]] YDistributedTensor_& y_tensor,
+                                   [[maybe_unused]] const ReduceFunc& reduce_func)
     {
-        sweep_tile<XDistributedTensor_>(
-            [&](auto... idx_) {
-                constexpr auto idx_0 = make_tuple(make_tuple(idx_[number<0>{}]...)[number<0>{}]);
-                y_tensor(idx_0)      = reduce_func(
-                    y_tensor(idx_0), ck_tile::type_convert<ComputeDataType>(x_tensor[idx_])...);
-            },
-            ReducePacksPerXDim{});
-#if 0
-        constexpr auto I0 = number<0>{};
-        constexpr auto I1 = number<1>{};
-        constexpr auto spans = XDistributedTensor_::get_distributed_spans();
+        
+        // sweep_tile<XDistributedTensor_>(
+        //     [&](auto... idx_) {
+                // constexpr auto idx_0 = make_tuple(make_tuple(idx_[number<0>{}]...)[number<0>{}]);
+                // y_tensor(idx_0)      = reduce_func(
+                //     y_tensor(idx_0), ck_tile::type_convert<ComputeDataType>(x_tensor[idx_])...);
+                
 
-        // FIXME: hard coded to reduce 2nd axis
-        sweep_tile_span(spans[I0], [&](auto dstr_idx_i0) {
-            constexpr auto y_dstr_idx = make_tuple(dstr_idx_i0);
 
-            auto y = y_tensor[y_dstr_idx];
+                // (y_tensor[idx_])... =  (xa_tensor[idx_])... * (xb_tensor[idx_])...;
+                // y_tensor[idx_...] =  xa_tensor[idx_...] * xb_tensor[idx_...];
+                
+                
+                // constexpr auto idx = make_tuple(idx_...);
+                // y_tensor(idx) = xa_tensor(idx) * xb_tensor(idx);
+                // constexpr auto idx = make_tuple(idx_...);
+                // y_tensor[idx] =  xa_tensor[idx] * xb_tensor[idx];
 
-            sweep_tile_span(spans[I1], [&](auto dstr_idx_i1) {
-                constexpr auto in_dstr_idx = make_tuple(dstr_idx_i0, dstr_idx_i1);
-                const auto x = ck_tile::type_convert<ComputeDataType>(x_tensor[in_dstr_idx]);
+                // constexpr auto idx_0 = make_tuple(make_tuple(idx_[number<0>{}]...)[number<0>{}]);
+                // y_tensor(idx_0)     = reduce_func(
+                    // y_tensor(idx_0), ck_tile::type_convert<ComputeDataType>(xa_tensor[idx_])...);
+                // y_tensor(idx)     = reduce_func(
+                    // y_tensor(idx), ck_tile::type_convert<ComputeDataType>(xa_tensor[idx_])...);
+                // y_tensor(idx) = 0;
 
-                y = reduce_func(y, x);
+
+            // });
+
+            // constexpr auto spans = XDistributedTensor_::get_distributed_spans();
+
+            // sweep_tile_span(spans[number<0>{}], [&](auto idx0) {
+            //     sweep_tile_span(spans[number<1>{}], [&](auto idx1) {
+            //         sweep_tile_span(spans[number<2>{}], [&](auto idx2) {
+            //             constexpr auto n_i_j_idx = make_tuple(idx0, idx1, idx2);
+            //             y_tensor(n_i_j_idx) += xa_tensor(n_i_j_idx);
+            //         });
+            //     });
+            // });
+
+
+            constexpr auto spans = XDistributedTensor_::get_distributed_spans();
+            sweep_tile_span(spans[number<0>{}], [&](auto idx0) {
+                sweep_tile_span(spans[number<1>{}], [&](auto idx1) {
+                    constexpr auto i_j_idx          = ck_tile::make_tuple(idx0, idx1);
+                    const auto x = ck_tile::type_convert<ComputeDataType>(xa_tensor[i_j_idx]);
+                    const auto y = ck_tile::type_convert<ComputeDataType>(xb_tensor[i_j_idx]);
+                    y_tensor(i_j_idx) = x * y;
+                });
             });
 
-            y_tensor(y_dstr_idx) = y;
-        });
-#endif
+
+
     }
 
     template <typename XDistributedTensor_>

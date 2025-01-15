@@ -33,5 +33,31 @@ reference_copy(const HostTensor<XDataType>& x_m_n, HostTensor<YDataType>& y_m_n)
 }
 
 
+template <typename XDataType, typename YDataType>
+CK_TILE_HOST void
+reference_mul(const HostTensor<XDataType>& xa_m_n, const HostTensor<XDataType>& xb_m_n, HostTensor<YDataType>& y_m_n)
+{
+    auto f = [&](auto m) {
+        const int N = xa_m_n.mDesc.get_lengths()[1];
+
+        // ComputeDataType v_acc = reduce_op.template GetIdentityValue<ComputeDataType>();
+
+        for(int n = 0; n < N; ++n)
+        {
+            y_m_n(m, n) = ck_tile::type_convert<YDataType>(xa_m_n(m, n)) * ck_tile::type_convert<YDataType>(xb_m_n(m, n));
+        //     const ComputeDataType v_a = type_convert<ComputeDataType>(x_m_n(m, n));
+
+        //     v_acc = reduce_op(v_acc, v_a);
+        }
+
+        // y_m(m) = ck_tile::type_convert<YDataType>(v_acc);
+    };
+
+    make_ParallelTensorFunctor(f, y_m_n.mDesc.get_lengths()[0])(std::thread::hardware_concurrency());
+}
+
+
+
+
 } // namespace ck_tile
 
