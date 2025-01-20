@@ -16,17 +16,10 @@ reference_copy(const HostTensor<XDataType>& x_m_n, HostTensor<YDataType>& y_m_n)
     auto f = [&](auto m) {
         const int N = x_m_n.mDesc.get_lengths()[1];
 
-        // ComputeDataType v_acc = reduce_op.template GetIdentityValue<ComputeDataType>();
-
         for(int n = 0; n < N; ++n)
         {
             y_m_n(m, n) = ck_tile::type_convert<YDataType>(x_m_n(m, n));
-        //     const ComputeDataType v_a = type_convert<ComputeDataType>(x_m_n(m, n));
-
-        //     v_acc = reduce_op(v_acc, v_a);
         }
-
-        // y_m(m) = ck_tile::type_convert<YDataType>(v_acc);
     };
 
     make_ParallelTensorFunctor(f, y_m_n.mDesc.get_lengths()[0])(std::thread::hardware_concurrency());
