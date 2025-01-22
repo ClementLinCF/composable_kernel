@@ -5,7 +5,7 @@
 auto create_args(int argc, char* argv[])
 {
     ck_tile::ArgParser arg_parser;
-    arg_parser.insert("m", "3328", "m dimension")
+    arg_parser.insert("m", "10240", "m dimension")
         .insert("n", "4096", "n dimension")
         .insert("v", "1", "cpu validation or not")
         .insert("prec", "fp16", "precision")
@@ -49,10 +49,17 @@ bool run(const ck_tile::ArgParser& arg_parser)
     using BlockTile  = ck_tile::sequence<1, 2048>;
     using WarpTile   = ck_tile::sequence<1, 256>;
     using Vector     = ck_tile::sequence<1, 4>;
+    
+    // using BlockWarps = ck_tile::sequence<8, 1>;
+    // using BlockTile  = ck_tile::sequence<128, 64>;
+    // using WarpTile   = ck_tile::sequence<16, 64>;
+    // using Vector     = ck_tile::sequence<4, 4>;
+
 
     constexpr ck_tile::index_t kBlockSize  = 512;
     constexpr ck_tile::index_t kBlockPerCu = 1;
     ck_tile::index_t kGridSize             = (m / BlockTile::at(ck_tile::number<0>{}));
+    std::cout << "block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
     std::cout << "grid size " << kGridSize << std::endl;
 
     using Shape = ck_tile::AddShape<BlockWarps, BlockTile, WarpTile, Vector>;
