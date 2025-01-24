@@ -80,7 +80,7 @@ bool run(const ck_tile::ArgParser& arg_parser)
                                        m,
                                        n));
 
-    std::size_t num_btype = sizeof(XDataType) * m * n + sizeof(YDataType) * m;
+    std::size_t num_btype = sizeof(XDataType) * m * n + sizeof(YDataType) * m * n;
 
     float gb_per_sec = num_btype / 1.E6 / ave_time;
 
