@@ -45,18 +45,31 @@ bool run(const ck_tile::ArgParser& arg_parser)
     x_buf_a.ToDevice(x_host_a.data());
     x_buf_b.ToDevice(x_host_b.data());
 
-    using BlockWarps = ck_tile::sequence<1, 8>;
+    // 19xx Gb/s, Original
+    // using BlockWarps = ck_tile::sequence<1, 8>;
+    // using BlockTile  = ck_tile::sequence<1, 2048>;
+    // using WarpTile   = ck_tile::sequence<1, 256>;
+    // using Vector     = ck_tile::sequence<1, 4>;
+
+    // 19xx -> 199x, Align 256 thread
+    // using BlockWarps = ck_tile::sequence<1, 4>;
+    // using BlockTile  = ck_tile::sequence<1, 1024>;
+    // using WarpTile   = ck_tile::sequence<1, 256>;
+    // using Vector     = ck_tile::sequence<1, 4>;
+
+    // 199x -> 27xx, Utilize vector load/store
+    using BlockWarps = ck_tile::sequence<1, 4>;
     using BlockTile  = ck_tile::sequence<1, 2048>;
-    using WarpTile   = ck_tile::sequence<1, 256>;
-    using Vector     = ck_tile::sequence<1, 4>;
-    
+    using WarpTile   = ck_tile::sequence<1, 512>;
+    using Vector     = ck_tile::sequence<1, 8>;
+
     // using BlockWarps = ck_tile::sequence<8, 1>;
     // using BlockTile  = ck_tile::sequence<128, 64>;
     // using WarpTile   = ck_tile::sequence<16, 64>;
     // using Vector     = ck_tile::sequence<4, 4>;
 
 
-    constexpr ck_tile::index_t kBlockSize  = 512;
+    constexpr ck_tile::index_t kBlockSize  = 256;
     constexpr ck_tile::index_t kBlockPerCu = 1;
     ck_tile::index_t kGridSize             = (m / BlockTile::at(ck_tile::number<0>{}));
     std::cout << "block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
