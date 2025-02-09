@@ -58,11 +58,17 @@ bool run(const ck_tile::ArgParser& arg_parser)
     // using Vector     = ck_tile::sequence<1, 4>;
 
     // 199x -> 27xx, Utilize vector load/store
-    using BlockWarps = ck_tile::sequence<1, 4>;
-    using BlockTile  = ck_tile::sequence<1, 2048>;
+    // using BlockWarps = ck_tile::sequence<1, 4>;
+    // using BlockTile  = ck_tile::sequence<1, 2048>;
+    // using WarpTile   = ck_tile::sequence<1, 512>;
+    // using Vector     = ck_tile::sequence<1, 8>;
+
+    // 27xx -> 32xx, 1D block to 2D block
+    using BlockWarps = ck_tile::sequence<2, 2>;
+    using BlockTile  = ck_tile::sequence<2, 1024>;
     using WarpTile   = ck_tile::sequence<1, 512>;
     using Vector     = ck_tile::sequence<1, 8>;
-
+    
     // using BlockWarps = ck_tile::sequence<8, 1>;
     // using BlockTile  = ck_tile::sequence<128, 64>;
     // using WarpTile   = ck_tile::sequence<16, 64>;
