@@ -17,7 +17,7 @@
 // #include "ck/library/utility/host_tensor_generator.hpp"
 
 // #include "stream_config.hpp"
-// #include "reference_gemm.hpp"
+#include "reference_gemm.hpp"
 
 #include "gemm.hpp"
 
@@ -105,21 +105,13 @@ int main(int argc, char* argv[])
                                : std::array<ck::index_t, 2>{1, Ldc};
 
     // host verify
-    // Tensor<ADataType> a_host(a_lengths, a_strides);
-    // Tensor<BDataType> b_host(b_lengths, b_strides);
-    // Tensor<CDataType> c_host_dev(c_lengths, c_strides);
     ck_tile::HostTensor<ADataType> a_host(a_lengths, a_strides);
     ck_tile::HostTensor<BDataType> b_host(b_lengths, b_strides);
     ck_tile::HostTensor<CDataType> c_host_dev(c_lengths, c_strides);
 
-    // ck::utils::FillUniformDistributionIntegerValue<ADataType>{-5.f, 5.f}(a_host);
-    // ck::utils::FillUniformDistributionIntegerValue<BDataType>{-5.f, 5.f}(b_host);
     ck_tile::FillUniformDistributionIntegerValue<ADataType>{-5.f, 5.f}(a_host);
     ck_tile::FillUniformDistributionIntegerValue<BDataType>{-5.f, 5.f}(b_host);
 
-    // DeviceMem a_buf(sizeof(ADataType) * a_host.GetElementSpaceSize());
-    // DeviceMem b_buf(sizeof(BDataType) * b_host.GetElementSpaceSize());
-    // DeviceMem c_buf(sizeof(CDataType) * c_host_dev.GetElementSpaceSize());
     ck_tile::DeviceMem a_buf(a_host.get_element_space_size_in_bytes());
     ck_tile::DeviceMem b_buf(b_host.get_element_space_size_in_bytes());
     ck_tile::DeviceMem c_buf(c_host_dev.get_element_space_size_in_bytes());
@@ -146,24 +138,6 @@ int main(int argc, char* argv[])
     constexpr ck::index_t kWarpPerBlock = kBlockSize / warpSize;
     constexpr ck::index_t kBlockPerCu   = kWarpPerCu / kWarpPerBlock;
 
-    // const auto gemm_kernel = Gemm<ADataType,
-    //                               BDataType,
-    //                               AccDataType,
-    //                               CDataType,
-    //                               ALayout,
-    //                               BLayout,
-    //                               CLayout,
-    //                               AElementFunction,
-    //                               BElementFunction,
-    //                               CElementFunction,
-    //                               kAAlignment,
-    //                               kBAlignment,
-    //                               kCAlignment,
-    //                               kBlockSize,
-    //                               kGemmMPerBlock,
-    //                               kGemmNPerBlock,
-    //                               kGemmKPerBlock>{};
-    
     using gemm_kernel = Gemm<ADataType,
                                   BDataType,
                                   AccDataType,
@@ -182,37 +156,33 @@ int main(int argc, char* argv[])
                                   kGemmNPerBlock,
                                   kGemmKPerBlock>;
 
-    // float ave_time = launch_kernel(ck_tile::stream_config{nullptr, true, 0, warmup, repeat},
-                                //    ck_tile::make_kernel<kBlockSize, kBlockPerCu>(
-    [[maybe_unused]] float ave_time =
+    float ave_time =
         ck_tile::launch_kernel(ck_tile::stream_config{nullptr, true},
-                                   ck_tile::make_kernel<kBlockSize, kBlockPerCu>(
-                                               gemm_kernel{},
-                                               kGridSize,
-                                               kBlockSize,
-                                               0,
-                                               static_cast<ADataType*>(a_buf.GetDeviceBuffer()),
-                                               static_cast<BDataType*>(b_buf.GetDeviceBuffer()),
-                                               static_cast<CDataType*>(c_buf.GetDeviceBuffer()),
-                                               M,
-                                               N,
-                                               K,
-                                               Lda,
-                                               Ldb,
-                                               Ldc,
-                                               AElementFunction{},
-                                               BElementFunction{},
-                                               CElementFunction{}));
+                               ck_tile::make_kernel<kBlockSize, kBlockPerCu>(
+                                    gemm_kernel{},
+                                    kGridSize,
+                                    kBlockSize,
+                                    0,
+                                    static_cast<ADataType*>(a_buf.GetDeviceBuffer()),
+                                    static_cast<BDataType*>(b_buf.GetDeviceBuffer()),
+                                    static_cast<CDataType*>(c_buf.GetDeviceBuffer()),
+                                    M,
+                                    N,
+                                    K,
+                                    Lda,
+                                    Ldb,
+                                    Ldc,
+                                    AElementFunction{},
+                                    BElementFunction{},
+                                    CElementFunction{}));
     auto pass = true;
 
     if(verification)
     {
         // reference gemm
-        // Tensor<CDataType> c_host_ref(c_lengths, c_strides);
         ck_tile::HostTensor<CDataType> c_host_ref(c_lengths, c_strides);
-        ck_tile::reference_gemm<ADataType, ADataType, AccDataType, CDataType>(a_host, b_host, c_host_ref);
+        reference_gemm_v0<ADataType, ADataType, AccDataType, CDataType>(a_host, b_host, c_host_ref);
         c_buf.FromDevice(c_host_dev.mData.data());
-        // pass &= ck::utils::check_err(c_host_dev, c_host_ref);
         pass &= ck_tile::check_err(c_host_dev, c_host_ref);
         std::cout << "valid:" << (pass ? "y" : "n") << std::endl;
     }
@@ -227,7 +197,6 @@ int main(int argc, char* argv[])
 
     std::cout << "Perf: " << ave_time << " ms, " << tflops << " TFlops, " << gb_per_sec << " GB/s"
               << std::endl;
-
 
     return !pass;
 }
