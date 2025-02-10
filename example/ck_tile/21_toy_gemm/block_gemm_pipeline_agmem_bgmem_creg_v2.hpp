@@ -73,8 +73,7 @@ struct BlockGemmPipelineAGmemBGmemCRegV2
 
         constexpr index_t a_lds_block_space_size_aligned =
             math::integer_divide_ceil(sizeof(ADataType) * a_lds_block_desc.get_element_space_size(),
-                                      16) *
-            16;
+                                      16) * 16;
 
         // B tile in LDS
         BDataType* p_b_lds = static_cast<BDataType*>(
