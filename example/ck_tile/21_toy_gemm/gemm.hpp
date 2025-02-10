@@ -10,28 +10,15 @@
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
 
 #include "ck_tile/core.hpp"
-
-
 #include "ck_tile/ops/common.hpp"
-
-// #include "ck/tile_program/tile/tile_distribution.hpp"
-// #include "ck/tile_program/tile/tile_elementwise.hpp"
-// #include "ck/tile_program/tile/tile_gemm_shape.hpp"
 #include "ck_tile/ops/gemm/pipeline/tile_gemm_shape.hpp"
-// #include "ck/tile_program/warp_tile/warp_gemm.hpp"
 #include "ck_tile/ops/gemm/warp/warp_gemm.hpp"
 #include "ck_tile/core/tensor/tile_distribution.hpp"
 
-
-// #include "ck/tile_program/block_tile_pipeline/block_gemm_pipeline_agmem_bgmem_creg_v1.hpp"
 #include "block_gemm_pipeline_agmem_bgmem_creg_v1.hpp"
-// #include "ck/tile_program/block_tile_pipeline/block_gemm_pipeline_agmem_bgmem_creg_v2.hpp"
 #include "block_gemm_pipeline_agmem_bgmem_creg_v2.hpp"
-// #include "ck/tile_program/grid/grid_gemm_problem.hpp"
 #include "grid_gemm_problem.hpp"
-// #include "ck/tile_program/grid/grid_gemm_v1.hpp"
 #include "grid_gemm_v1.hpp"
-// #include "ck/tile_program/grid/grid_gemm_v1_default_policy.hpp"
 #include "grid_gemm_v1_default_policy.hpp"
 
 // C = A * B
@@ -81,7 +68,6 @@ struct Gemm
                 MultiIndex<2> unmerged;
                 unmerge.CalculateLowerIndex(unmerged, make_multi_index(block_id));
 
-                // return make_multi_index(unmerged.At<1>(), unmerged.At<0>());
                 return make_multi_index(unmerged.At(Number<1>{}), unmerged.At(Number<0>{}));  
 
             };
@@ -129,16 +115,11 @@ struct Gemm
         const auto a_dram = [&] {
             if constexpr(is_same_v<ALayout, ck::tensor_layout::gemm::RowMajor>)
             {
-                // return ck_tile::make_naive_tensor_view<AddressSpaceEnum::Global>(
                 return ck_tile::make_naive_tensor_view<ck_tile::address_space_enum::global>(
                     p_a, ck_tile::make_tuple(M, K), ck_tile::make_tuple(Lda, 1), ck_tile::number<kAAlignment>{}, ck_tile::number<1>{});
-        // const auto x_m_n = make_naive_tensor_view<address_space_enum::global>(
-            // p_x, make_tuple(M, N), make_tuple(N, 1), number<S::Vector_N>{}, number<1>{});
-                        
             }
             else
             {
-                // const auto a_k_m_desc = ck_tile::make_naive_tensor_view<AddressSpaceEnum::Global>(
                 const auto a_k_m_desc = ck_tile::make_naive_tensor_view<ck_tile::address_space_enum::global>(
                     p_a, ck_tile::make_tuple(K, M), ck_tile::make_tuple(Lda, 1), ck_tile::number<kAAlignment>{}, ck_tile::number<1>{});
 
@@ -191,4 +172,3 @@ struct Gemm
         GridGemm{}(a_dram, b_dram, c_dram, a_element_func, b_element_func, c_element_func);
     }
 };
-
