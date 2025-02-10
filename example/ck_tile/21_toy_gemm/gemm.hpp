@@ -15,11 +15,8 @@
 #include "ck_tile/ops/gemm/warp/warp_gemm.hpp"
 #include "ck_tile/core/tensor/tile_distribution.hpp"
 
-#include "block_gemm_pipeline_agmem_bgmem_creg_v1.hpp"
 #include "block_gemm_pipeline_agmem_bgmem_creg_v2.hpp"
 #include "grid_gemm_problem.hpp"
-#include "grid_gemm_v1.hpp"
-#include "grid_gemm_v1_default_policy.hpp"
 
 // C = A * B
 template <typename ADataType,

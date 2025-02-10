@@ -3,8 +3,7 @@
 
 #pragma once
 
-// #include "ck/tile_program/block_tile_pipeline/block_gemm_pipeline_agmem_bgmem_creg_v1.hpp"
-#include "block_gemm_pipeline_agmem_bgmem_creg_v1.hpp"
+#include "block_gemm_asmem_bsmem_creg_v1_default_policy.hpp"
 
 namespace ck {
 namespace tile_program {
