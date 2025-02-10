@@ -9,13 +9,6 @@
 #include "ck/tensor_description/tensor_adaptor.hpp"
 
 #include "ck_tile/core.hpp"
-// #include "ck/tile_program/tile/tile_distribution.hpp"
-// #include "ck/tile_program/tile/load_tile.hpp"
-// #include "ck/tile_program/tile/store_tile.hpp"
-// #include "ck/tile_program/tile/tile_elementwise.hpp"
-// #include "ck/tile_program/tile/tile_gemm_shape.hpp"
-// #include "ck/tile_program/warp_tile/warp_gemm.hpp"
-// #include "ck/tile_program/block_tile_pipeline/block_gemm_pipeline_agmem_bgmem_creg_v2_default_policy.hpp"
 #include "block_gemm_pipeline_agmem_bgmem_creg_v2_default_policy.hpp"
 
 namespace ck {
