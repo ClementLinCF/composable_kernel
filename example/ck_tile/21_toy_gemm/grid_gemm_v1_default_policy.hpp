@@ -4,7 +4,6 @@
 #pragma once
 
 #include "ck/ck.hpp"
-// #include "ck/tile_program/block_tile_pipeline/block_gemm_pipeline_problem.hpp"
 #include "block_gemm_pipeline_problem.hpp"
 #include "tile_gemm_shape.hpp"
 
@@ -29,7 +28,6 @@ struct GridGemmV1DefaultPolicy
             MultiIndex<2> unmerged;
             unmerge.CalculateLowerIndex(unmerged, make_multi_index(block_id));
 
-            // return make_multi_index(unmerged.At<1>(), unmerged.At<0>());
             return ck_tile::make_multi_index(unmerged.At(Number<1>{}), unmerged.At(Number<0>{}));  
 
         };

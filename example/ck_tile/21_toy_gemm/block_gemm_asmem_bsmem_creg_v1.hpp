@@ -9,15 +9,7 @@
 #include "ck/tensor_description/tensor_adaptor.hpp"
 
 #include "ck_tile/core.hpp"
-// #include "ck/tile_program/tile/static_tile_distribution_helper.hpp"
 #include "ck_tile/core/tensor/tile_distribution.hpp"
-// #include "ck/tile_program/tile/tile_distribution.hpp"
-// #include "ck/tile_program/tile/load_tile.hpp"
-// #include "ck/tile_program/tile/tile_elementwise.hpp"
-// #include "ck/tile_program/tile/tile_gemm_shape.hpp"
-// #include "ck/tile_program/warp_tile/warp_gemm.hpp"
-// #include "ck/tile_program/block_tile/block_gemm_asmem_bsmem_creg_problem.hpp"
-// #include "ck/tile_program/block_tile/block_gemm_asmem_bsmem_creg_v1_default_policy.hpp"
 #include "block_gemm_asmem_bsmem_creg_problem.hpp"
 #include "block_gemm_asmem_bsmem_creg_v1_default_policy.hpp"
 
@@ -49,9 +41,6 @@ struct BlockGemmASmemBSmemCRegV1
                           is_same_v<CDataType, typename CBlockTensor::DataType>,
                       "wrong!");
 
-        // constexpr index_t MPerBlock = ABlockWindowTmp{}.GetWindowLengths()[Number<0>{}];
-        // constexpr index_t NPerBlock = BBlockWindowTmp{}.GetWindowLengths()[Number<0>{}];
-        // constexpr index_t KPerBlock = ABlockWindowTmp{}.GetWindowLengths()[Number<1>{}];
         constexpr index_t MPerBlock = ABlockWindowTmp{}.get_window_lengths()[ck_tile::number<0>{}];
         constexpr index_t NPerBlock = BBlockWindowTmp{}.get_window_lengths()[ck_tile::number<0>{}];
         constexpr index_t KPerBlock = ABlockWindowTmp{}.get_window_lengths()[ck_tile::number<1>{}];
@@ -62,11 +51,8 @@ struct BlockGemmASmemBSmemCRegV1
 
         constexpr auto config = Policy::template GetWarpGemmMWarpNWarp<Problem>();
 
-        // using WG = remove_cvref_t<decltype(config.template At<0>())>;
         using WG = remove_cvref_t<decltype(config.template get<0>())>;
 
-        // constexpr index_t MWarp = config.template At<1>();
-        // constexpr index_t NWarp = config.template At<2>();
         constexpr index_t MWarp = config.template get<1>();
         constexpr index_t NWarp = config.template get<2>();
 
@@ -154,8 +140,6 @@ struct BlockGemmASmemBSmemCRegV1
         using CWarpDstr   = typename WG::CWarpDstr;
         using CWarpTensor = typename WG::CWarpTensor;
 
-        // constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.GetYs2DDescriptor().GetLengths());
-        // constexpr auto c_warp_y_index_zeros = uniform_sequence_gen_t<CWarpDstr::NDimY, 0>{};
         constexpr auto c_warp_y_lengths = ck_tile::to_sequence(CWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
         constexpr auto c_warp_y_index_zeros = ck_tile::uniform_sequence_gen_t<CWarpDstr::NDimY, 0>{};
 
@@ -172,9 +156,6 @@ struct BlockGemmASmemBSmemCRegV1
                     // read C warp tensor from C block tensor
                     CWarpTensor c_warp_tensor;
 
-                    // c_warp_tensor.GetThreadBuffer() = c_block_tensor.GetYSlicedThreadData(
-                    //     merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                    //     merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths));
                     c_warp_tensor.get_thread_buffer() = c_block_tensor.get_y_sliced_thread_data(
                         ck_tile::merge_sequences(ck_tile::sequence<mIter, nIter>{}, c_warp_y_index_zeros),
                         ck_tile::merge_sequences(ck_tile::sequence<1, 1>{}, c_warp_y_lengths));
@@ -183,10 +164,6 @@ struct BlockGemmASmemBSmemCRegV1
                     WG{}(c_warp_tensor, a_warp_tensor, b_warp_tensor);
 
                     // write C warp tensor into C block tensor
-                    // c_block_tensor.SetYSlicedThreadData(
-                    //     merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                    //     merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths),
-                    //     c_warp_tensor.GetThreadBuffer());
                     c_block_tensor.set_y_sliced_thread_data(
                         ck_tile::merge_sequences(ck_tile::sequence<mIter, nIter>{}, c_warp_y_index_zeros),
                         ck_tile::merge_sequences(ck_tile::sequence<1, 1>{}, c_warp_y_lengths),
@@ -215,12 +192,8 @@ struct BlockGemmASmemBSmemCRegV1
 
         constexpr auto config = Policy::template GetWarpGemmMWarpNWarp<Problem>();
 
-        // using WG = remove_cvref_t<decltype(config.template At<0>())>;
         using WG = remove_cvref_t<decltype(config.template get(ck_tile::number<0>{}))>;  
 
-
-        // constexpr index_t MWarp = config.template At<1>();
-        // constexpr index_t NWarp = config.template At<2>();
         constexpr index_t MWarp = config.template get(ck_tile::number<1>{});
         constexpr index_t NWarp = config.template get(ck_tile::number<2>{});
 
@@ -308,7 +281,6 @@ struct BlockGemmASmemBSmemCRegV1
         static_assert(is_same_v<CDataType, typename WG::CDataType>, "wrong!");
 
         // Construct C-Block-Tensor
-        // constexpr auto c_block_outer_dstr_encoding = StaticTileDistributionEncoding<
         constexpr auto c_block_outer_dstr_encoding = ck_tile::tile_distribution_encoding<
             ck_tile::sequence<>,
             ck_tile::tuple<ck_tile::sequence<MIterPerWarp, MWarp>, ck_tile::sequence<NIterPerWarp, NWarp>>,
@@ -327,7 +299,6 @@ struct BlockGemmASmemBSmemCRegV1
         using CWarpDstr   = typename WG::CWarpDstr;
         using CWarpTensor = typename WG::CWarpTensor;
 
-        // constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.GetYs2DDescriptor().GetLengths());
         constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
         constexpr auto c_warp_y_index_zeros = ck_tile::uniform_sequence_gen_t<CWarpDstr::NDimY, 0>{};
 
@@ -353,9 +324,6 @@ struct BlockGemmASmemBSmemCRegV1
                     else
                     {
                         // c += a * b
-                        // c_warp_tensor.GetThreadBuffer() = c_block_tensor.GetYSlicedThreadData(
-                        //     merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                        //     merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths));
                         c_warp_tensor.get_thread_buffer() = c_block_tensor.get_y_sliced_thread_data(
                             ck_tile::merge_sequences(ck_tile::sequence<mIter, nIter>{}, c_warp_y_index_zeros),
                             ck_tile::merge_sequences(ck_tile::sequence<1, 1>{}, c_warp_y_lengths));
@@ -364,10 +332,6 @@ struct BlockGemmASmemBSmemCRegV1
                     }
 
                     // write C warp tensor into C block tensor
-                    // c_block_tensor.SetYSlicedThreadData(
-                    //     merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                    //     merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths),
-                    //     c_warp_tensor.GetThreadBuffer());
                     c_block_tensor.set_y_sliced_thread_data(
                         ck_tile::merge_sequences(ck_tile::sequence<mIter, nIter>{}, c_warp_y_index_zeros),
                         ck_tile::merge_sequences(ck_tile::sequence<1, 1>{}, c_warp_y_lengths),
