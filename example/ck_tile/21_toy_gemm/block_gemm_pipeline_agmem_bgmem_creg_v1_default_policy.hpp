@@ -10,11 +10,6 @@
 
 #include "ck_tile/core.hpp"
 #include "ck_tile/core/tensor/tile_distribution.hpp"
-// #include "ck/tile_program/tile/tile_distribution.hpp"
-// #include "ck/tile_program/tile/tile_elementwise.hpp"
-// #include "ck/tile_program/tile/tile_gemm_shape.hpp"
-// #include "ck/tile_program/warp_tile/warp_gemm.hpp"
-// #include "ck/tile_program/block_tile/block_gemm_asmem_bsmem_creg_v1.hpp"
 #include "block_gemm_asmem_bsmem_creg_v1.hpp"
 
 namespace ck {
@@ -195,7 +190,6 @@ struct BlockGemmPipelineAGmemBGmemCRegV1DefaultPolicy
         constexpr index_t M0 = kMPerBlock / (M2 * M1);
 
         return ck_tile::make_static_tile_distribution(
-            // StaticTileDistributionEncoding<Sequence<1>,
             ck_tile::tile_distribution_encoding<ck_tile::sequence<1>,
                                            ck_tile::tuple<ck_tile::sequence<M0, M1, M2>, ck_tile::sequence<K0, K1>>,
                                            ck_tile::tuple<ck_tile::sequence<1>, ck_tile::sequence<1, 2>>,
@@ -234,7 +228,6 @@ struct BlockGemmPipelineAGmemBGmemCRegV1DefaultPolicy
         constexpr index_t N0 = kNPerBlock / (N2 * N1);
 
         return ck_tile::make_static_tile_distribution(
-            // StaticTileDistributionEncoding<Sequence<1>,
             ck_tile::tile_distribution_encoding<ck_tile::sequence<1>,
                                            ck_tile::tuple<ck_tile::sequence<N0, N1, N2>, ck_tile::sequence<K0, K1>>,
                                            ck_tile::tuple<ck_tile::sequence<1>, ck_tile::sequence<1, 2>>,
