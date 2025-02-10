@@ -31,10 +31,6 @@ struct GridGemmV1
         using namespace ck::tile_program;
         using namespace ck::tile_program::block;
 
-        // const auto M = a_grid.GetTensorDescriptor().GetLength(Number<0>{});
-        // const auto N = c_grid.GetTensorDescriptor().GetLength(Number<1>{});
-        // const auto K = a_grid.GetTensorDescriptor().GetLength(Number<1>{});
-        
         const auto M = a_grid.get_tensor_descriptor().get_length(ck_tile::number<0>{});
         const auto N = c_grid.get_tensor_descriptor().get_length(ck_tile::number<1>{});
         const auto K = a_grid.get_tensor_descriptor().get_length(ck_tile::number<1>{});
