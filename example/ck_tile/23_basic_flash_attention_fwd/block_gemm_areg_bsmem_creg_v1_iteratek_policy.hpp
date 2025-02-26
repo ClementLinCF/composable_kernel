@@ -3,31 +3,18 @@
 
 #pragma once
 
-#include "ck/utility/common_header.hpp"
-#include "ck/tensor_description/tensor_descriptor.hpp"
-#include "ck/tensor_description/tensor_descriptor_helper.hpp"
-#include "ck/tensor_description/tensor_adaptor.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
 
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
-#include "ck/tile_program/tile/tile_gemm_shape.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
-
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 
 struct BlockGemmARegBSmemCRegV1K8Policy
 {
     template <typename Problem>
-    __host__ __device__ static constexpr auto GetWarpGemmMWarpNWarp()
+    CK_TILE_HOST_DEVICE static constexpr auto GetWarpGemmMWarpNWarp()
     {
-        using namespace ck::tile_program::warp;
-
         return make_tuple(WarpGemmMfmaF16F16F32M32N32K16TransposedCDistribution{}, 4, 1);
     }
 };
 
-} // namespace block
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile

@@ -3,10 +3,9 @@
 
 #pragma once
 
-#include "ck/ck.hpp"
+#include "ck_tile/core.hpp"
 
-namespace ck {
-namespace tile_program {
+namespace ck_tile {
 
 template <index_t kMPerTile, index_t kNPerTile, index_t kKPerTile>
 struct TileGemmShape
@@ -16,5 +15,4 @@ struct TileGemmShape
     static constexpr index_t kK = kKPerTile;
 };
 
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile

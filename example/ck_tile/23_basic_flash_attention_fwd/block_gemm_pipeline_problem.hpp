@@ -3,12 +3,9 @@
 
 #pragma once
 
-#include "ck/ck.hpp"
-#include "ck/utility/type.hpp"
+#include "ck_tile/core.hpp"
 
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 
 template <typename ADataType_,
           typename BDataType_,
@@ -25,7 +22,5 @@ struct BlockGemmPipelineProblem
     static constexpr index_t kBlockSize = kBlockSize_;
 };
 
-} // namespace block
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile
 

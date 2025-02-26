@@ -15,78 +15,50 @@
 
 namespace ck_tile {
 
-template <typename BottomTensorView_,
-          typename WindowLengths_,
-          index_t... SliceBegins,
-          index_t... SliceEnds>
-CK_TILE_DEVICE constexpr auto
-get_slice_tile(const tile_window_with_static_lengths<BottomTensorView_, WindowLengths_>& tile,
-               sequence<SliceBegins...> slice_begins,
-               sequence<SliceEnds...> slice_ends)
+template <typename StaticDistributedTensor_, index_t... SliceBegins, index_t... SliceEnds>
+__host__ __device__ constexpr auto get_slice_tile(const StaticDistributedTensor_& tile,
+                                                  sequence<SliceBegins...> slice_begins,
+                                                  sequence<SliceEnds...> slice_ends)
 {
-    using TileWindow = tile_window_with_static_lengths<BottomTensorView_, WindowLengths_>;
-    // NOTE: This API will override the origin of the tile window!
-    static_assert(sizeof...(SliceBegins) == sizeof...(SliceEnds));
-    static_assert(sizeof...(SliceBegins) == TileWindow::get_num_of_dimension());
-
-    constexpr auto slice_lengths = slice_ends - slice_begins;
-
-    return make_tile_window(tile.get_bottom_tensor_view(),
-                            sequence_to_tuple_of_number(slice_lengths),
-                            to_multi_index(slice_begins));
-}
-
-template <typename DataType_,
-          typename StaticTileDistribution_,
-          index_t... SliceBegins,
-          index_t... SliceEnds>
-CK_TILE_DEVICE constexpr auto
-get_slice_tile(const static_distributed_tensor<DataType_, StaticTileDistribution_>& tile,
-               sequence<SliceBegins...> slice_begins,
-               sequence<SliceEnds...> slice_ends)
-{
-    using DataType     = remove_cvref_t<DataType_>;
-    using Distribution = remove_cvref_t<StaticTileDistribution_>;
+    using Distribution = decltype(StaticDistributedTensor_::get_tile_distribution());
+    using DataType     = typename StaticDistributedTensor_::DataType;
 
     constexpr auto sliced_dstr_yidx_ylen =
         detail::slice_distribution_from_x(Distribution{}, slice_begins, slice_ends);
 
-    constexpr auto sliced_dstr      = sliced_dstr_yidx_ylen.template at<0>();
-    constexpr auto sliced_y_origins = sliced_dstr_yidx_ylen.template at<1>();
-    constexpr auto sliced_y_lengths = sliced_dstr_yidx_ylen.template at<2>();
+    constexpr auto sliced_dstr      = sliced_dstr_yidx_ylen.template get<0>();
+    constexpr auto sliced_y_origins = sliced_dstr_yidx_ylen.template get<1>();
+    constexpr auto sliced_y_lengths = sliced_dstr_yidx_ylen.template get<2>();
 
     auto sliced_tensor = make_static_distributed_tensor<DataType>(sliced_dstr);
 
-    sliced_tensor.get_thread_buffer() =
-        tile.get_y_sliced_thread_data(sliced_y_origins, sliced_y_lengths);
+    sliced_tensor.get_thread_buffer() = tile.get_y_sliced_thread_data(sliced_y_origins, sliced_y_lengths);
 
     return sliced_tensor;
 }
 
-template <typename DstDataType_,
-          typename DstStaticTileDistribution_,
-          typename SrcDataType_,
-          typename SrcStaticTileDistribution_,
+template <typename DstStaticDistributedTensor_,
+          typename SrcStaticDistributedTensor_,
           index_t... SliceBegins,
           index_t... SliceEnds>
-CK_TILE_DEVICE constexpr auto
-set_slice_tile(static_distributed_tensor<DstDataType_, DstStaticTileDistribution_>& dst_tile,
-               const static_distributed_tensor<SrcDataType_, SrcStaticTileDistribution_>& src_tile,
-               sequence<SliceBegins...> slice_begins,
-               sequence<SliceEnds...> slice_ends)
+__host__ __device__ constexpr auto set_slice_tile(DstStaticDistributedTensor_& dst_tile,
+                                                  const SrcStaticDistributedTensor_& src_tile,
+                                                  sequence<SliceBegins...> slice_begins,
+                                                  sequence<SliceEnds...> slice_ends)
 {
-    using DstDistribution = remove_cvref_t<DstStaticTileDistribution_>;
+    using DstDistribution = decltype(DstStaticDistributedTensor_::get_tile_distribution());
+    // using SrcDistribution = decltype(SrcStaticDistributedTensor_::GetTileDistribution());
 
     constexpr auto sliced_dstr_yidx_ylen =
         detail::slice_distribution_from_x(DstDistribution{}, slice_begins, slice_ends);
 
-    constexpr auto sliced_dstr      = sliced_dstr_yidx_ylen.template at<0>();
-    constexpr auto sliced_y_origins = sliced_dstr_yidx_ylen.template at<1>();
-    constexpr auto sliced_y_lengths = sliced_dstr_yidx_ylen.template at<2>();
+    // constexpr auto sliced_dstr      = sliced_dstr_yidx_ylen.template At<0>();
+    constexpr auto sliced_y_origins = sliced_dstr_yidx_ylen.template get<1>();
+    constexpr auto sliced_y_lengths = sliced_dstr_yidx_ylen.template get<2>();
 
-    static_assert(std::is_same_v<decltype(sliced_dstr), DstDistribution>, "wrong!");
+    // static_assert(is_same_v<decltype(sliced_dstr), SrcDistribution>, "wrong!");
 
-    dst_tile.SetSlicedThreadData(sliced_y_origins, sliced_y_lengths, src_tile.get_thread_buffer());
+    dst_tile.set_y_sliced_thread_data(sliced_y_origins, sliced_y_lengths, src_tile.get_thread_buffer());
 }
 
 } // namespace ck_tile

@@ -1,17 +1,6 @@
 #include <cstring>
 
-#include "ck/utility/common_header.hpp"
-#include "ck/tensor_description/tensor_descriptor_helper.hpp"
-#include "ck/tensor_description/cluster_descriptor.hpp"
-#include "ck/tensor/tensor_view.hpp"
-#include "ck/host_utility/device_prop.hpp"
-#include "ck/host_utility/kernel_launch.hpp"
-
-#include "ck/library/utility/check_err.hpp"
-#include "ck/library/utility/device_memory.hpp"
-#include "ck/library/utility/fill.hpp"
-#include "ck/library/utility/host_tensor.hpp"
-#include "ck/library/utility/host_tensor_generator.hpp"
+#include "ck_tile/host.hpp"
 
 #include "reference_batched_gemm.hpp"
 #include "reference_batched_softmax.hpp"
@@ -28,23 +17,23 @@
 
 int main(int argc, char* argv[])
 {
-    using QDataType           = ck::half_t;
-    using KDataType           = ck::half_t;
-    using VDataType           = ck::half_t;
+    using QDataType           = ck_tile::half_t;
+    using KDataType           = ck_tile::half_t;
+    using VDataType           = ck_tile::half_t;
     using SaccDataType        = float;
     using SMPLComputeDataType = float;
-    using PDataType           = ck::half_t;
+    using PDataType           = ck_tile::half_t;
     using OaccDataType        = float;
-    using ODataType           = ck::half_t;
+    using ODataType           = ck_tile::half_t;
 
-    ck::index_t Batch        = 64;   // Batch Number * Head Number
-    ck::index_t M0           = 4096; // SequenceLengthQ
-    ck::index_t N0           = 4096; // SequencelengthK
-    ck::index_t K0           = 128;  // HeadDim
-    ck::index_t N1           = 128;  // HeadDim
-    ck::index_t verification = 0;
-    ck::index_t init_method  = 1;
-    ck::index_t time_kernel  = 0;
+    ck_tile::index_t Batch        = 64;   // Batch Number * Head Number
+    ck_tile::index_t M0           = 4096; // SequenceLengthQ
+    ck_tile::index_t N0           = 4096; // SequencelengthK
+    ck_tile::index_t K0           = 128;  // HeadDim
+    ck_tile::index_t N1           = 128;  // HeadDim
+    ck_tile::index_t verification = 0;
+    ck_tile::index_t init_method  = 1;
+    [[maybe_unused]] ck_tile::index_t time_kernel  = 0;
 
     if(argc == 4)
     {
@@ -65,78 +54,78 @@ int main(int argc, char* argv[])
         N1           = std::stoi(argv[8]);
     }
 
-    std::array<ck::index_t, 3> q_lengths{Batch, M0, K0};
-    std::array<ck::index_t, 3> q_strides{M0 * K0, K0, 1};
+    std::array<ck_tile::index_t, 3> q_lengths{Batch, M0, K0};
+    std::array<ck_tile::index_t, 3> q_strides{M0 * K0, K0, 1};
 
-    std::array<ck::index_t, 3> k_lengths{Batch, N0, K0};
-    std::array<ck::index_t, 3> k_strides{N0 * K0, K0, 1};
+    std::array<ck_tile::index_t, 3> k_lengths{Batch, N0, K0};
+    std::array<ck_tile::index_t, 3> k_strides{N0 * K0, K0, 1};
 
-    std::array<ck::index_t, 3> v_lengths{Batch, N1, N0};
-    std::array<ck::index_t, 3> v_strides{N1 * N0, N0, 1};
+    std::array<ck_tile::index_t, 3> v_lengths{Batch, N1, N0};
+    std::array<ck_tile::index_t, 3> v_strides{N1 * N0, N0, 1};
 
-    std::array<ck::index_t, 3> s_lengths{Batch, M0, N0};
-    std::array<ck::index_t, 3> s_strides{M0 * N0, N0, 1};
+    std::array<ck_tile::index_t, 3> s_lengths{Batch, M0, N0};
+    std::array<ck_tile::index_t, 3> s_strides{M0 * N0, N0, 1};
 
-    std::array<ck::index_t, 3> p_lengths{Batch, M0, N0};
-    std::array<ck::index_t, 3> p_strides{M0 * N0, N0, 1};
+    std::array<ck_tile::index_t, 3> p_lengths{Batch, M0, N0};
+    std::array<ck_tile::index_t, 3> p_strides{M0 * N0, N0, 1};
 
-    std::array<ck::index_t, 3> o_lengths{Batch, M0, N1};
-    std::array<ck::index_t, 3> o_strides{M0 * N1, N1, 1};
+    std::array<ck_tile::index_t, 3> o_lengths{Batch, M0, N1};
+    std::array<ck_tile::index_t, 3> o_strides{M0 * N1, N1, 1};
 
     // host verify
-    Tensor<QDataType> q_host(q_lengths, q_strides);
-    Tensor<KDataType> k_host(k_lengths, k_strides);
-    Tensor<VDataType> v_host(v_lengths, v_strides);
-    Tensor<ODataType> o_host_dev(o_lengths, o_strides);
+    ck_tile::HostTensor<QDataType> q_host(q_lengths, q_strides);
+    ck_tile::HostTensor<KDataType> k_host(k_lengths, k_strides);
+    ck_tile::HostTensor<VDataType> v_host(v_lengths, v_strides);
+    ck_tile::HostTensor<ODataType> o_host_dev(o_lengths, o_strides);
 
     switch(init_method)
     {
     case 0: break;
     case 1:
-        ck::utils::FillUniformDistributionIntegerValue<QDataType>{-3.f, 3.f}(q_host);
-        ck::utils::FillUniformDistributionIntegerValue<KDataType>{-3.f, 3.f}(k_host);
-        ck::utils::FillUniformDistributionIntegerValue<VDataType>{-3.f, 3.f}(v_host);
+        ck_tile::FillUniformDistributionIntegerValue<QDataType>{-3.f, 3.f}(q_host);
+        ck_tile::FillUniformDistributionIntegerValue<KDataType>{-3.f, 3.f}(k_host);
+        ck_tile::FillUniformDistributionIntegerValue<VDataType>{-3.f, 3.f}(v_host);
         break;
     case 2:
-        ck::utils::FillUniformDistribution<QDataType>{-3.f, 3.f}(q_host);
-        ck::utils::FillUniformDistribution<KDataType>{-3.f, 3.f}(k_host);
-        ck::utils::FillUniformDistribution<VDataType>{-3.f, 3.f}(v_host);
+        ck_tile::FillUniformDistribution<QDataType>{-3.f, 3.f}(q_host);
+        ck_tile::FillUniformDistribution<KDataType>{-3.f, 3.f}(k_host);
+        ck_tile::FillUniformDistribution<VDataType>{-3.f, 3.f}(v_host);
         break;
     default:
-        ck::utils::FillUniformDistributionIntegerValue<QDataType>{-2.f, 2.f}(q_host);
-        ck::utils::FillUniformDistributionIntegerValue<KDataType>{-2.f, 2.f}(k_host);
-        ck::utils::FillUniformDistributionIntegerValue<VDataType>{-2.f, 2.f}(v_host);
+        ck_tile::FillUniformDistributionIntegerValue<QDataType>{-2.f, 2.f}(q_host);
+        ck_tile::FillUniformDistributionIntegerValue<KDataType>{-2.f, 2.f}(k_host);
+        ck_tile::FillUniformDistributionIntegerValue<VDataType>{-2.f, 2.f}(v_host);
     }
-
-    DeviceMem q_buf(sizeof(QDataType) * q_host.GetElementSpaceSize());
-    DeviceMem k_buf(sizeof(KDataType) * k_host.GetElementSpaceSize());
-    DeviceMem v_buf(sizeof(VDataType) * v_host.GetElementSpaceSize());
-    DeviceMem o_buf(sizeof(ODataType) * o_host_dev.GetElementSpaceSize());
+    ck_tile::DeviceMem q_buf(q_host.get_element_space_size_in_bytes());
+    ck_tile::DeviceMem k_buf(k_host.get_element_space_size_in_bytes());
+    ck_tile::DeviceMem v_buf(v_host.get_element_space_size_in_bytes());
+    ck_tile::DeviceMem o_buf(o_host_dev.get_element_space_size_in_bytes());
 
     q_buf.ToDevice(q_host.mData.data());
     k_buf.ToDevice(k_host.mData.data());
     v_buf.ToDevice(v_host.mData.data());
 
-    constexpr ck::index_t kM0PerBlock = 128;
-    constexpr ck::index_t kN0PerBlock = 128;
-    constexpr ck::index_t kK0PerBlock = 32;
-    constexpr ck::index_t kN1PerBlock = 128;
-    constexpr ck::index_t kK1PerBlock = 32;
+    constexpr ck_tile::index_t kM0PerBlock = 128;
+    constexpr ck_tile::index_t kN0PerBlock = 128;
+    constexpr ck_tile::index_t kK0PerBlock = 32;
+    constexpr ck_tile::index_t kN1PerBlock = 128;
+    constexpr ck_tile::index_t kK1PerBlock = 32;
 
-    constexpr ck::index_t kBlockSize = 256;
-    constexpr ck::index_t kHeadDim   = 128;
+    constexpr ck_tile::index_t kBlockSize = 256;
+    constexpr ck_tile::index_t kHeadDim   = 128;
 
-    ck::index_t kGridSize = Batch * (M0 / kM0PerBlock) * (N1 / kN1PerBlock);
+    ck_tile::index_t kGridSize = Batch * (M0 / kM0PerBlock) * (N1 / kN1PerBlock);
 
     std::cout << "grid size " << kGridSize << std::endl;
 
-    constexpr ck::index_t kWarpPerCu    = 8; // 2 warps per SIMD
-    constexpr ck::index_t kWarpPerBlock = kBlockSize / warpSize;
-    constexpr ck::index_t kBlockPerCu   = kWarpPerCu / kWarpPerBlock;
+    constexpr ck_tile::index_t kWarpPerCu    = 8; // 2 warps per SIMD
+    constexpr ck_tile::index_t kWarpPerBlock = kBlockSize / warpSize;
+    constexpr ck_tile::index_t kBlockPerCu   = kWarpPerCu / kWarpPerBlock;
 
-    float ave_time = launch_kernel<kBlockSize, kBlockPerCu>(
-        StreamConfig{nullptr, static_cast<bool>(time_kernel)},
-        FlashAttentionFwd<QDataType,
+    float ave_time = ck_tile::launch_kernel(ck_tile::stream_config{nullptr, true},
+        ck_tile::make_kernel<kBlockSize, kBlockPerCu>(
+        // StreamConfig{nullptr, static_cast<bool>(time_kernel)},
+        ck_tile::FlashAttentionFwd<QDataType,
                           KDataType,
                           VDataType,
                           SaccDataType,
@@ -170,7 +159,7 @@ int main(int argc, char* argv[])
         M0 * K0,  // BatchStrideQ
         N0 * K0,  // BatchStrideK
         N1 * N0,  // BatchStrideV
-        M0 * N1); // BatchStrideO
+        M0 * N1)); // BatchStrideO
 
     // reference
     auto pass = true;
@@ -178,18 +167,19 @@ int main(int argc, char* argv[])
     {
         o_buf.FromDevice(o_host_dev.mData.data());
 
-        Tensor<SMPLComputeDataType> s_host_ref(s_lengths, s_strides);
-        Tensor<PDataType> p_host_ref(p_lengths, p_strides);
-        Tensor<ODataType> o_host_ref(o_lengths, o_strides);
+        ck_tile::HostTensor<SMPLComputeDataType> s_host_ref(s_lengths, s_strides);
+        ck_tile::HostTensor<PDataType> p_host_ref(p_lengths, p_strides);
+        ck_tile::HostTensor<ODataType> o_host_ref(o_lengths, o_strides);
 
-        reference_batched_gemm<QDataType, KDataType, SaccDataType, SMPLComputeDataType>(
+        ck_tile::reference_batched_gemm<QDataType, KDataType, SaccDataType, SMPLComputeDataType>(
             q_host, k_host, s_host_ref);
-        reference_batched_softmax<SMPLComputeDataType, SMPLComputeDataType, PDataType>(s_host_ref,
+        ck_tile::reference_batched_softmax<SMPLComputeDataType, SMPLComputeDataType, PDataType>(s_host_ref,
                                                                                        p_host_ref);
-        reference_batched_gemm<PDataType, VDataType, OaccDataType, ODataType>(
+        ck_tile::reference_batched_gemm<PDataType, VDataType, OaccDataType, ODataType>(
             p_host_ref, v_host, o_host_ref);
 
-        pass &= ck::utils::check_err(o_host_dev, o_host_ref);
+        pass &= ck_tile::check_err(o_host_dev, o_host_ref);
+        std::cout << "valid:" << (pass ? "y" : "n") << std::endl;
     }
 
     std::size_t flop =

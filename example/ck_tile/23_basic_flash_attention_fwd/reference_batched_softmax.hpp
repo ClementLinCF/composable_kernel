@@ -3,16 +3,16 @@
 
 #pragma once
 
-#include "ck/utility/common_header.hpp"
-#include "ck/library/utility/host_tensor.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/host/host_tensor.hpp"
 
 template <typename ADataType, typename AccDataType, typename BDataType>
-void reference_batched_softmax(const Tensor<ADataType>& a_b_m_n, Tensor<BDataType>& b_b_m_n)
+void reference_batched_softmax(const ck_tile::HostTensor<ADataType>& a_b_m_n, ck_tile::HostTensor<BDataType>& b_b_m_n)
 {
-    const int N = a_b_m_n.mDesc.GetLengths()[2];
+    const int N = a_b_m_n.mDesc.get_lengths()[2];
 
     auto f = [&](auto batch, auto m) {
-        AccDataType v_max = ck::NumericLimits<ADataType>::Lowest();
+        AccDataType v_max = std::numeric_limits<ADataType>::lowest();
 
         // max
         for(int n = 0; n < N; ++n)
@@ -29,7 +29,7 @@ void reference_batched_softmax(const Tensor<ADataType>& a_b_m_n, Tensor<BDataTyp
         {
             const ADataType v_a = a_b_m_n(batch, m, n);
 
-            v_exp_sum += ck::math::exp(v_a - v_max);
+            v_exp_sum += ck_tile::exp(v_a - v_max);
         }
 
         // elementwise
@@ -37,11 +37,11 @@ void reference_batched_softmax(const Tensor<ADataType>& a_b_m_n, Tensor<BDataTyp
         {
             const ADataType v_a = a_b_m_n(batch, m, n);
 
-            b_b_m_n(batch, m, n) = ck::math::exp(v_a - v_max) / v_exp_sum;
+            b_b_m_n(batch, m, n) = ck_tile::exp(v_a - v_max) / v_exp_sum;
         }
     };
 
-    make_ParallelTensorFunctor(f, b_b_m_n.mDesc.GetLengths()[0], b_b_m_n.mDesc.GetLengths()[1])(
+    ck_tile::make_ParallelTensorFunctor(f, b_b_m_n.mDesc.get_lengths()[0], b_b_m_n.mDesc.get_lengths()[1])(
         std::thread::hardware_concurrency());
 }
 

@@ -4,20 +4,18 @@
 #pragma once
 
 #include "ck/utility/common_header.hpp"
-#include "ck/tensor_description/tensor_descriptor.hpp"
-#include "ck/tensor_description/tensor_descriptor_helper.hpp"
-#include "ck/tensor_description/tensor_adaptor.hpp"
 
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
-#include "ck/tile_program/tile/tile_gemm_shape.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/ops/common.hpp"
+#include "ck_tile/ops/gemm/warp/warp_gemm.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
+
 #include "../../../example/ck_tile/22_basic_gemm/block_gemm_pipeline_agmem_bgmem_creg.hpp"
 #include "block_gemm_pipeline_problem.hpp"
 #include "block_gemm_areg_bsmem_creg_v1.hpp"
-#include "ck/tile_program/block_tile/block_reduce.hpp"
-
 #include "flash_attention_fwd_impl.hpp"
+
+namespace ck_tile {
 
 // S[M0, N0] = Q[M0, K0] * K[N0, K0]
 // P[M0, N0] = Softmax(S[M0, N0])
@@ -30,35 +28,33 @@ template <typename QDataType,
           typename PDataType,
           typename OaccDataType,
           typename ODataType,
-          ck::index_t kBlockSize,
-          ck::index_t kHeadDim,
-          ck::index_t kM0PerBlock,
-          ck::index_t kN0PerBlock,
-          ck::index_t kK0PerBlock,
-          ck::index_t kN1PerBlock,
-          ck::index_t kK1PerBlock>
+          index_t kBlockSize,
+          index_t kHeadDim,
+          index_t kM0PerBlock,
+          index_t kN0PerBlock,
+          index_t kK0PerBlock,
+          index_t kN1PerBlock,
+          index_t kK1PerBlock>
 struct FlashAttentionFwd
 {
     __device__ void operator()(const QDataType* q_ptr,
                                const KDataType* k_ptr,
                                const VDataType* v_ptr,
                                ODataType* o_ptr,
-                               const ck::index_t M0,
-                               const ck::index_t N0,
-                               const ck::index_t K0,
-                               const ck::index_t N1,
-                               const ck::index_t /* Batch */,
-                               const ck::index_t StrideQ,
-                               const ck::index_t StrideK,
-                               const ck::index_t StrideV,
-                               const ck::index_t StrideO,
-                               const ck::index_t BatchStrideQ,
-                               const ck::index_t BatchStrideK,
-                               const ck::index_t BatchStrideV,
-                               const ck::index_t BatchStrideO) const
+                               const index_t M0,
+                               const index_t N0,
+                               const index_t K0,
+                               const index_t N1,
+                               const index_t /* Batch */,
+                               const index_t StrideQ,
+                               const index_t StrideK,
+                               const index_t StrideV,
+                               const index_t StrideO,
+                               const index_t BatchStrideQ,
+                               const index_t BatchStrideK,
+                               const index_t BatchStrideV,
+                               const index_t BatchStrideO) const
     {
-        using namespace ck;
-
         // divide problem
         const index_t num_tile_m0 = M0 / kM0PerBlock;
         const index_t num_tile_n1 = N1 / kN1PerBlock;
@@ -69,7 +65,7 @@ struct FlashAttentionFwd
             index_t quotient = dividend / divisor;
             index_t modulus  = dividend - quotient * divisor;
 
-            return ck::make_tuple(quotient, modulus);
+            return make_tuple(quotient, modulus);
         };
 
         const auto [itmp, id_tile_n]          = f(id_block, num_tile_n1);
@@ -112,3 +108,4 @@ struct FlashAttentionFwd
     }
 };
 
+} // namespace ck_tile

@@ -8,18 +8,14 @@
 #include "ck/tensor_description/tensor_descriptor_helper.hpp"
 #include "ck/tensor_description/tensor_adaptor.hpp"
 
-#include "ck/tile_program/tile/static_tile_distribution_helper.hpp"
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
-#include "ck/tile_program/tile/tile_gemm_shape.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
+
 #include "block_gemm_areg_bsmem_creg_problem.hpp"
 #include "block_gemm_areg_bsmem_creg_v1_default_policy.hpp"
 #include "block_gemm_areg_bsmem_creg_v1_iteratek_policy.hpp"
 
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 
 // A is block distributed tensor
 // B is block window on shared memory
@@ -41,14 +37,14 @@ struct BlockGemmARegBSmemCRegV1
                                const ABlockTensorTmp& a_block_tensor_tmp,
                                const BBlockWindowTmp& b_block_window_tmp) const
     {
-        static_assert(is_same_v<ADataType, remove_cv_t<typename ABlockTensorTmp::DataType>> &&
-                          is_same_v<BDataType, remove_cv_t<typename BBlockWindowTmp::DataType>> &&
-                          is_same_v<CDataType, remove_cv_t<typename CBlockTensor::DataType>>,
+        static_assert(std::is_same_v<ADataType, remove_cv_t<typename ABlockTensorTmp::DataType>> &&
+                          std::is_same_v<BDataType, remove_cv_t<typename BBlockWindowTmp::DataType>> &&
+                          std::is_same_v<CDataType, remove_cv_t<typename CBlockTensor::DataType>>,
                       "wrong!");
 
-        constexpr index_t MPerBlock = ABlockTensorTmp{}.GetLengths()[Number<0>{}];
-        constexpr index_t NPerBlock = BBlockWindowTmp{}.GetWindowLengths()[Number<0>{}];
-        constexpr index_t KPerBlock = ABlockTensorTmp{}.GetLengths()[Number<1>{}];
+        constexpr index_t MPerBlock = ABlockTensorTmp{}.get_lengths()[number<0>{}];
+        constexpr index_t NPerBlock = BBlockWindowTmp{}.get_window_lengths()[number<0>{}];
+        constexpr index_t KPerBlock = ABlockTensorTmp{}.get_lengths()[number<1>{}];
 
         static_assert(MPerBlock == BlockGemmShape::kM && NPerBlock == BlockGemmShape::kN &&
                           KPerBlock == BlockGemmShape::kK,
@@ -56,10 +52,10 @@ struct BlockGemmARegBSmemCRegV1
 
         constexpr auto config = Policy::template GetWarpGemmMWarpNWarp<Problem>();
 
-        using WG = remove_cvref_t<decltype(config.template At<0>())>;
+        using WG = remove_cvref_t<decltype(config.template get<0>())>;
 
-        constexpr index_t MWarp = config.template At<1>();
-        constexpr index_t NWarp = config.template At<2>();
+        constexpr index_t MWarp = config.template get<1>();
+        constexpr index_t NWarp = config.template get<2>();
 
         constexpr index_t MIterPerWarp = MPerBlock / (MWarp * WG::kM);
         constexpr index_t NIterPerWarp = NPerBlock / (NWarp * WG::kN);
@@ -70,21 +66,21 @@ struct BlockGemmARegBSmemCRegV1
 
         const index_t iNWarp = get_warp_id() % NWarp;
 
-        constexpr auto a_block_outer_dstr_encoding = StaticTileDistributionEncoding<
-            Sequence<NWarp>,
-            Tuple<Sequence<MIterPerWarp, MWarp>, Sequence<KIterPerWarp>>,
-            Tuple<Sequence<1, 0>>,
-            Tuple<Sequence<1, 0>>,
-            Sequence<1, 2>,
-            Sequence<0, 0>>{};
+        constexpr auto a_block_outer_dstr_encoding = tile_distribution_encoding<
+            sequence<NWarp>,
+            tuple<sequence<MIterPerWarp, MWarp>, sequence<KIterPerWarp>>,
+            tuple<sequence<1, 0>>,
+            tuple<sequence<1, 0>>,
+            sequence<1, 2>,
+            sequence<0, 0>>{};
 
-        constexpr auto c_block_outer_dstr_encoding = StaticTileDistributionEncoding<
-            Sequence<>,
-            Tuple<Sequence<MIterPerWarp, MWarp>, Sequence<NIterPerWarp, NWarp>>,
-            Tuple<Sequence<1, 2>>,
-            Tuple<Sequence<1, 1>>,
-            Sequence<1, 2>,
-            Sequence<0, 0>>{};
+        constexpr auto c_block_outer_dstr_encoding = tile_distribution_encoding<
+            sequence<>,
+            tuple<sequence<MIterPerWarp, MWarp>, sequence<NIterPerWarp, NWarp>>,
+            tuple<sequence<1, 2>>,
+            tuple<sequence<1, 1>>,
+            sequence<1, 2>,
+            sequence<0, 0>>{};
 
         constexpr auto a_block_dstr_encode = detail::make_embed_tile_distribution_encoding(
             a_block_outer_dstr_encoding, typename WG::AWarpDstrEncoding{});
@@ -100,13 +96,14 @@ struct BlockGemmARegBSmemCRegV1
         auto a_block_tensor =
             make_static_distributed_tensor<typename ABlockTensorTmp::DataType>(a_block_dstr);
 
-        a_block_tensor.GetThreadBuffer() = a_block_tensor_tmp.GetThreadBuffer();
+        a_block_tensor.get_thread_buffer() = a_block_tensor_tmp.get_thread_buffer();
 
         // construct B-warp-window
         auto b_warp_window_tmp = make_tile_window(
-            b_block_window_tmp.GetBottomTensorView(),
-            make_tuple(Number<WG::kN>{}, Number<WG::kK>{}),
-            b_block_window_tmp.GetWindowOrigin() + MultiIndex<2>{iNWarp * WG::kN, 0},
+            b_block_window_tmp.get_bottom_tensor_view(),
+            make_tuple(number<WG::kN>{}, number<WG::kK>{}),
+            // b_block_window_tmp.GetWindowOrigin() + MultiIndex<2>{iNWarp * WG::kN, 0},
+            {b_block_window_tmp.get_window_origin().at(number<0>{}) + iNWarp * WG::kN, b_block_window_tmp.get_window_origin().at(number<1>{})},
             make_static_tile_distribution(typename WG::BWarpDstrEncoding{}));
 
 #if 0 // FIXME: using Array will cause register spill
@@ -122,7 +119,7 @@ struct BlockGemmARegBSmemCRegV1
             }
         }
 #else
-        StaticallyIndexedArray<StaticallyIndexedArray<decltype(b_warp_window_tmp), KIterPerWarp>,
+        statically_indexed_array<statically_indexed_array<decltype(b_warp_window_tmp), KIterPerWarp>,
                                NIterPerWarp>
             b_warp_windows;
 
@@ -137,9 +134,11 @@ struct BlockGemmARegBSmemCRegV1
 #endif
 
         // check C-block-distribution
-        static_assert(is_same_v<remove_cvref_t<decltype(c_block_dstr_encode)>,
-                                remove_cvref_t<decltype(CBlockTensor::GetTileDistribution()
-                                                            .GetStaticTileDistributionEncoding())>>,
+        static_assert(std::is_same_v<remove_cvref_t<decltype(c_block_dstr_encode)>,
+                                remove_cvref_t<decltype(CBlockTensor::get_tile_distribution()
+                                                            .get_static_tile_distribution_encoding())>>,
+                                // remove_cvref_t<decltype(CBlockTensor::GetTileDistribution()
+                                                            // .GetStaticTileDistributionEncoding())>>,
                       "wrong!");
 
         using AWarpDstr = typename WG::AWarpDstr;
@@ -148,8 +147,8 @@ struct BlockGemmARegBSmemCRegV1
         using AWarpTensor = typename WG::AWarpTensor;
         using CWarpTensor = typename WG::CWarpTensor;
 
-        constexpr auto a_warp_y_lengths = to_sequence(AWarpDstr{}.GetYs2DDescriptor().GetLengths());
-        constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.GetYs2DDescriptor().GetLengths());
+        constexpr auto a_warp_y_lengths = to_sequence(AWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
+        constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
 
         constexpr auto a_warp_y_index_zeros = uniform_sequence_gen_t<AWarpDstr::NDimY, 0>{};
         constexpr auto c_warp_y_index_zeros = uniform_sequence_gen_t<CWarpDstr::NDimY, 0>{};
@@ -160,9 +159,9 @@ struct BlockGemmARegBSmemCRegV1
                 // read A warp tensor from A block tensor
                 AWarpTensor a_warp_tensor;
 
-                a_warp_tensor.GetThreadBuffer() = a_block_tensor.GetYSlicedThreadData(
-                    merge_sequences(Sequence<mIter, kIter>{}, a_warp_y_index_zeros),
-                    merge_sequences(Sequence<1, 1>{}, a_warp_y_lengths));
+                a_warp_tensor.get_thread_buffer() = a_block_tensor.get_y_sliced_thread_data(
+                    merge_sequences(sequence<mIter, kIter>{}, a_warp_y_index_zeros),
+                    merge_sequences(sequence<1, 1>{}, a_warp_y_lengths));
 
                 static_for<0, NIterPerWarp, 1>{}([&](auto nIter) {
                     // read B warp tensor from B Block window
@@ -170,18 +169,18 @@ struct BlockGemmARegBSmemCRegV1
                     // read C warp tensor from C block tensor
                     CWarpTensor c_warp_tensor;
 
-                    c_warp_tensor.GetThreadBuffer() = c_block_tensor.GetYSlicedThreadData(
-                        merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                        merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths));
+                    c_warp_tensor.get_thread_buffer() = c_block_tensor.get_y_sliced_thread_data(
+                        merge_sequences(sequence<mIter, nIter>{}, c_warp_y_index_zeros),
+                        merge_sequences(sequence<1, 1>{}, c_warp_y_lengths));
 
                     // warp GEMM
                     WG{}(c_warp_tensor, a_warp_tensor, b_warp_tensor);
 
                     // write C warp tensor into C block tensor
-                    c_block_tensor.SetYSlicedThreadData(
-                        merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                        merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths),
-                        c_warp_tensor.GetThreadBuffer());
+                    c_block_tensor.set_y_sliced_thread_data(
+                        merge_sequences(sequence<mIter, nIter>{}, c_warp_y_index_zeros),
+                        merge_sequences(sequence<1, 1>{}, c_warp_y_lengths),
+                        c_warp_tensor.get_thread_buffer());
                 });
             });
         });
@@ -192,13 +191,13 @@ struct BlockGemmARegBSmemCRegV1
     __device__ auto operator()(const ABlockTensorTmp& a_block_tensor_tmp,
                                const BBlockWindowTmp& b_block_window_tmp) const
     {
-        static_assert(is_same_v<ADataType, remove_cv_t<typename ABlockTensorTmp::DataType>> &&
-                          is_same_v<BDataType, remove_cv_t<typename BBlockWindowTmp::DataType>>,
+        static_assert(std::is_same_v<ADataType, remove_cv_t<typename ABlockTensorTmp::DataType>> &&
+                          std::is_same_v<BDataType, remove_cv_t<typename BBlockWindowTmp::DataType>>,
                       "wrong!");
 
-        constexpr index_t MPerBlock = ABlockTensorTmp{}.GetLengths()[Number<0>{}];
-        constexpr index_t NPerBlock = BBlockWindowTmp{}.GetWindowLengths()[Number<0>{}];
-        constexpr index_t KPerBlock = ABlockTensorTmp{}.GetLengths()[Number<1>{}];
+        constexpr index_t MPerBlock = ABlockTensorTmp{}.get_lengths()[number<0>{}];
+        constexpr index_t NPerBlock = BBlockWindowTmp{}.get_window_lengths()[number<0>{}];
+        constexpr index_t KPerBlock = ABlockTensorTmp{}.get_lengths()[number<1>{}];
 
         static_assert(MPerBlock == BlockGemmShape::kM && NPerBlock == BlockGemmShape::kN &&
                           KPerBlock == BlockGemmShape::kK,
@@ -206,10 +205,10 @@ struct BlockGemmARegBSmemCRegV1
 
         constexpr auto config = Policy::template GetWarpGemmMWarpNWarp<Problem>();
 
-        using WG = remove_cvref_t<decltype(config.template At<0>())>;
+        using WG = remove_cvref_t<decltype(config.template get<0>())>;
 
-        constexpr index_t MWarp = config.template At<1>();
-        constexpr index_t NWarp = config.template At<2>();
+        constexpr index_t MWarp = config.template get<1>();
+        constexpr index_t NWarp = config.template get<2>();
 
         constexpr index_t MIterPerWarp = MPerBlock / (MWarp * WG::kM);
         constexpr index_t NIterPerWarp = NPerBlock / (NWarp * WG::kN);
@@ -220,21 +219,21 @@ struct BlockGemmARegBSmemCRegV1
 
         const index_t iNWarp = get_warp_id() % NWarp;
 
-        constexpr auto a_block_outer_dstr_encoding = StaticTileDistributionEncoding<
-            Sequence<NWarp>,
-            Tuple<Sequence<MIterPerWarp, MWarp>, Sequence<KIterPerWarp>>,
-            Tuple<Sequence<1, 0>>,
-            Tuple<Sequence<1, 0>>,
-            Sequence<1, 2>,
-            Sequence<0, 0>>{};
+        constexpr auto a_block_outer_dstr_encoding = tile_distribution_encoding<
+            sequence<NWarp>,
+            tuple<sequence<MIterPerWarp, MWarp>, sequence<KIterPerWarp>>,
+            tuple<sequence<1, 0>>,
+            tuple<sequence<1, 0>>,
+            sequence<1, 2>,
+            sequence<0, 0>>{};
 
-        constexpr auto c_block_outer_dstr_encoding = StaticTileDistributionEncoding<
-            Sequence<>,
-            Tuple<Sequence<MIterPerWarp, MWarp>, Sequence<NIterPerWarp, NWarp>>,
-            Tuple<Sequence<1, 2>>,
-            Tuple<Sequence<1, 1>>,
-            Sequence<1, 2>,
-            Sequence<0, 0>>{};
+        constexpr auto c_block_outer_dstr_encoding = tile_distribution_encoding<
+            sequence<>,
+            tuple<sequence<MIterPerWarp, MWarp>, sequence<NIterPerWarp, NWarp>>,
+            tuple<sequence<1, 2>>,
+            tuple<sequence<1, 1>>,
+            sequence<1, 2>,
+            sequence<0, 0>>{};
 
         constexpr auto a_block_dstr_encode = detail::make_embed_tile_distribution_encoding(
             a_block_outer_dstr_encoding, typename WG::AWarpDstrEncoding{});
@@ -251,13 +250,14 @@ struct BlockGemmARegBSmemCRegV1
         auto a_block_tensor =
             make_static_distributed_tensor<typename ABlockTensorTmp::DataType>(a_block_dstr);
 
-        a_block_tensor.GetThreadBuffer() = a_block_tensor_tmp.GetThreadBuffer();
+        a_block_tensor.get_thread_buffer() = a_block_tensor_tmp.get_thread_buffer();
 
         // construct B-warp-window
         auto b_warp_window_tmp = make_tile_window(
-            b_block_window_tmp.GetBottomTensorView(),
-            make_tuple(Number<WG::kN>{}, Number<WG::kK>{}),
-            b_block_window_tmp.GetWindowOrigin() + MultiIndex<2>{iNWarp * WG::kN, 0},
+            b_block_window_tmp.get_bottom_tensor_view(),
+            make_tuple(number<WG::kN>{}, number<WG::kK>{}),
+            // b_block_window_tmp.GetWindowOrigin() + MultiIndex<2>{iNWarp * WG::kN, 0},
+            {b_block_window_tmp.get_window_origin().at(number<0>{}) + iNWarp * WG::kN, b_block_window_tmp.get_window_origin().at(number<1>{})},
             make_static_tile_distribution(typename WG::BWarpDstrEncoding{}));
 
 #if 0 // FIXME: using Array will cause register spill
@@ -273,7 +273,7 @@ struct BlockGemmARegBSmemCRegV1
             }
         }
 #else
-        StaticallyIndexedArray<StaticallyIndexedArray<decltype(b_warp_window_tmp), KIterPerWarp>,
+        statically_indexed_array<statically_indexed_array<decltype(b_warp_window_tmp), KIterPerWarp>,
                                NIterPerWarp>
             b_warp_windows;
 
@@ -296,8 +296,8 @@ struct BlockGemmARegBSmemCRegV1
         using AWarpTensor = typename WG::AWarpTensor;
         using CWarpTensor = typename WG::CWarpTensor;
 
-        constexpr auto a_warp_y_lengths = to_sequence(AWarpDstr{}.GetYs2DDescriptor().GetLengths());
-        constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.GetYs2DDescriptor().GetLengths());
+        constexpr auto a_warp_y_lengths = to_sequence(AWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
+        constexpr auto c_warp_y_lengths = to_sequence(CWarpDstr{}.get_ys_to_d_descriptor().get_lengths());
 
         constexpr auto a_warp_y_index_zeros = uniform_sequence_gen_t<AWarpDstr::NDimY, 0>{};
         constexpr auto c_warp_y_index_zeros = uniform_sequence_gen_t<CWarpDstr::NDimY, 0>{};
@@ -308,9 +308,9 @@ struct BlockGemmARegBSmemCRegV1
                 // read A warp tensor from A block tensor
                 AWarpTensor a_warp_tensor;
 
-                a_warp_tensor.GetThreadBuffer() = a_block_tensor.GetYSlicedThreadData(
-                    merge_sequences(Sequence<mIter, kIter>{}, a_warp_y_index_zeros),
-                    merge_sequences(Sequence<1, 1>{}, a_warp_y_lengths));
+                a_warp_tensor.get_thread_buffer() = a_block_tensor.get_y_sliced_thread_data(
+                    merge_sequences(sequence<mIter, kIter>{}, a_warp_y_index_zeros),
+                    merge_sequences(sequence<1, 1>{}, a_warp_y_lengths));
 
                 static_for<0, NIterPerWarp, 1>{}([&](auto nIter) {
                     // read B warp tensor from B Block window
@@ -319,18 +319,18 @@ struct BlockGemmARegBSmemCRegV1
                     // read C warp tensor from C block tensor
                     CWarpTensor c_warp_tensor;
 
-                    c_warp_tensor.GetThreadBuffer() = c_block_tensor.GetYSlicedThreadData(
-                        merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                        merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths));
+                    c_warp_tensor.get_thread_buffer() = c_block_tensor.get_y_sliced_thread_data(
+                        merge_sequences(sequence<mIter, nIter>{}, c_warp_y_index_zeros),
+                        merge_sequences(sequence<1, 1>{}, c_warp_y_lengths));
 
                     // warp GEMM
                     WG{}(c_warp_tensor, a_warp_tensor, b_warp_tensor);
 
                     // write C warp tensor into C block tensor
-                    c_block_tensor.SetYSlicedThreadData(
-                        merge_sequences(Sequence<mIter, nIter>{}, c_warp_y_index_zeros),
-                        merge_sequences(Sequence<1, 1>{}, c_warp_y_lengths),
-                        c_warp_tensor.GetThreadBuffer());
+                    c_block_tensor.set_y_sliced_thread_data(
+                        merge_sequences(sequence<mIter, nIter>{}, c_warp_y_index_zeros),
+                        merge_sequences(sequence<1, 1>{}, c_warp_y_lengths),
+                        c_warp_tensor.get_thread_buffer());
                 });
             });
         });
@@ -339,7 +339,4 @@ struct BlockGemmARegBSmemCRegV1
     }
 };
 
-} // namespace block
-} // namespace tile_program
-} // namespace ck
-
+} // namespace ck_tile

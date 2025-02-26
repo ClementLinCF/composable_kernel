@@ -8,29 +8,24 @@
 #include "ck/tensor_description/tensor_descriptor_helper.hpp"
 #include "ck/tensor_description/tensor_adaptor.hpp"
 
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/load_tile.hpp"
-#include "ck/tile_program/tile/store_tile.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
-#include "ck/tile_program/tile/tile_gemm_shape.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
+
 #include "block_gemm_pipeline_agmem_bgmem_creg_v2_askiplds_policy.hpp"
 
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 
 //  A Tile Window: global memory
 //  B Tile Window: global memory
 //  C Distributed tensor: register
 template <typename Problem>
-struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRegV2SkipALdsPolicy>
+struct BlockGemmPipelineAGmemBGmemCReg<Problem, BlockGemmPipelineAGmemBGmemCRegSkipALdsPolicy>
 {
     using ADataType      = remove_cvref_t<typename Problem::ADataType>;
     using BDataType      = remove_cvref_t<typename Problem::BDataType>;
     using CDataType      = remove_cvref_t<typename Problem::CDataType>;
     using BlockGemmShape = remove_cvref_t<typename Problem::BlockGemmShape>;
-    using Policy         = BlockGemmPipelineAGmemBGmemCRegV2SkipALdsPolicy;
+    using Policy         = BlockGemmPipelineAGmemBGmemCRegSkipALdsPolicy;
 
     static constexpr index_t kBlockSize = Problem::kBlockSize;
 
@@ -39,10 +34,10 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRe
     static constexpr index_t kKPerBlock = BlockGemmShape::kK;
 
     // Move this part into Policy?
-    __host__ __device__ static constexpr ck::index_t GetStaticLdsSize()
+    __host__ __device__ static constexpr index_t GetStaticLdsSize()
     {
         return sizeof(BDataType) *
-               Policy::template MakeBLdsBlockDescriptor<Problem>().GetElementSpaceSize();
+               Policy::template MakeBLdsBlockDescriptor<Problem>().get_element_space_size();
     }
 
     template <typename ADramBlockWindowTmp,
@@ -57,13 +52,13 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRe
                                         void* p_smem) const
     {
         static_assert(
-            is_same_v<ADataType, remove_cvref_t<typename ADramBlockWindowTmp::DataType>> &&
-                is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
+            std::is_same_v<ADataType, remove_cvref_t<typename ADramBlockWindowTmp::DataType>> &&
+                std::is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
             "wrong!");
 
-        static_assert(kMPerBlock == ADramBlockWindowTmp{}.GetWindowLengths()[Number<0>{}] &&
-                          kNPerBlock == BDramBlockWindowTmp{}.GetWindowLengths()[Number<0>{}] &&
-                          kKPerBlock == ADramBlockWindowTmp{}.GetWindowLengths()[Number<1>{}],
+        static_assert(kMPerBlock == ADramBlockWindowTmp{}.get_window_lengths()[number<0>{}] &&
+                          kNPerBlock == BDramBlockWindowTmp{}.get_window_lengths()[number<0>{}] &&
+                          kKPerBlock == ADramBlockWindowTmp{}.get_window_lengths()[number<1>{}],
                       "wrong!");
 
         // A tile in Reg，blockTensor
@@ -79,13 +74,13 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRe
 
         // This tensor view used to construct both tile window for lds store and read, with buffer
         // address info
-        auto b_lds_block = make_tensor_view<AddressSpaceEnum::Lds>(p_b_lds, b_lds_block_desc);
+        auto b_lds_block = make_tensor_view<address_space_enum::lds>(p_b_lds, b_lds_block_desc);
 
         // A DRAM tile window for load
         auto a_copy_dram_window =
-            make_tile_window(a_dram_block_window_tmp.GetBottomTensorView(),
-                             make_tuple(Number<kMPerBlock>{}, Number<kKPerBlock>{}),
-                             a_dram_block_window_tmp.GetWindowOrigin(),
+            make_tile_window(a_dram_block_window_tmp.get_bottom_tensor_view(),
+                             make_tuple(number<kMPerBlock>{}, number<kKPerBlock>{}),
+                             a_dram_block_window_tmp.get_window_origin(),
                              Policy::template MakeADramTileDistribution<Problem>());
 
         // A Reg tensor for store, also used for block GEMM
@@ -93,21 +88,21 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRe
 
         // B DRAM tile window for load
         auto b_copy_dram_window =
-            make_tile_window(b_dram_block_window_tmp.GetBottomTensorView(),
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
-                             b_dram_block_window_tmp.GetWindowOrigin(),
+            make_tile_window(b_dram_block_window_tmp.get_bottom_tensor_view(),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
+                             b_dram_block_window_tmp.get_window_origin(),
                              Policy::template MakeBDramTileDistribution<Problem>());
 
         // B LDS tile window for store
         auto b_copy_lds_window =
             make_tile_window(b_lds_block,
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
                              {0, 0},
-                             b_copy_dram_window.GetTileDistribution());
+                             b_copy_dram_window.get_tile_distribution());
 
         // B LDS tile for block GEMM
         auto b_lds_gemm_window = make_tile_window(
-            b_lds_block, make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}), {0, 0});
+            b_lds_block, make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}), {0, 0});
 
         // Block GEMM
         constexpr auto block_gemm = Policy::template GetBlockGemm<Problem>();
@@ -218,15 +213,15 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<Problem, BlockGemmPipelineAGmemBGmemCRe
 //  B Tile Window: global memory
 //  C Distributed tensor: register
 template <typename Problem, index_t kHeadDim>
-struct BlockGemmPipelineAGmemBGmemCRegV2<
+struct BlockGemmPipelineAGmemBGmemCReg<
     Problem,
-    BlockGemmPipelineAGmemBGmemCRegV2SkipALdsPersistentQRegCachePolicy<kHeadDim>>
+    BlockGemmPipelineAGmemBGmemCRegSkipALdsPersistentQRegCachePolicy<kHeadDim>>
 {
     using ADataType      = remove_cvref_t<typename Problem::ADataType>;
     using BDataType      = remove_cvref_t<typename Problem::BDataType>;
     using CDataType      = remove_cvref_t<typename Problem::CDataType>;
     using BlockGemmShape = remove_cvref_t<typename Problem::BlockGemmShape>;
-    using Policy = BlockGemmPipelineAGmemBGmemCRegV2SkipALdsPersistentQRegCachePolicy<kHeadDim>;
+    using Policy = BlockGemmPipelineAGmemBGmemCRegSkipALdsPersistentQRegCachePolicy<kHeadDim>;
 
     static constexpr index_t kBlockSize = Problem::kBlockSize;
 
@@ -237,10 +232,10 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
     static constexpr index_t k_loops = Policy::AKDim / kKPerBlock;
 
     // Move this part into Policy?
-    __host__ __device__ static constexpr ck::index_t GetStaticLdsSize()
+    __host__ __device__ static constexpr index_t GetStaticLdsSize()
     {
         return sizeof(BDataType) *
-               Policy::template MakeBLdsBlockDescriptor<Problem>().GetElementSpaceSize();
+               Policy::template MakeBLdsBlockDescriptor<Problem>().get_element_space_size();
     }
 
     // Cold A Register Cache
@@ -257,13 +252,13 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
                                         void* p_smem) const
     {
         static_assert(
-            is_same_v<ADataType, remove_cvref_t<typename ADramBlockWindowTmp::DataType>> &&
-                is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
+            std::is_same_v<ADataType, remove_cvref_t<typename ADramBlockWindowTmp::DataType>> &&
+                std::is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
             "wrong!");
 
-        static_assert(kMPerBlock == ADramBlockWindowTmp{}.GetWindowLengths()[Number<0>{}] &&
-                          kNPerBlock == BDramBlockWindowTmp{}.GetWindowLengths()[Number<0>{}] &&
-                          kKPerBlock == ADramBlockWindowTmp{}.GetWindowLengths()[Number<1>{}],
+        static_assert(kMPerBlock == ADramBlockWindowTmp{}.get_window_lengths()[number<0>{}] &&
+                          kNPerBlock == BDramBlockWindowTmp{}.get_window_lengths()[number<0>{}] &&
+                          kKPerBlock == ADramBlockWindowTmp{}.get_window_lengths()[number<1>{}],
                       "wrong!");
 
         ignore = a_element_func;
@@ -282,13 +277,13 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
         // This tensor view used to construct both tile window for lds store and read, with buffer
         // address info
-        auto b_lds_block = make_tensor_view<AddressSpaceEnum::Lds>(p_b_lds, b_lds_block_desc);
+        auto b_lds_block = make_tensor_view<address_space_enum::lds>(p_b_lds, b_lds_block_desc);
 
         // A DRAM tile window for load
         auto a_copy_dram_window =
-            make_tile_window(a_dram_block_window_tmp.GetBottomTensorView(),
-                             make_tuple(Number<kMPerBlock>{}, Number<kKPerBlock>{}),
-                             a_dram_block_window_tmp.GetWindowOrigin(),
+            make_tile_window(a_dram_block_window_tmp.get_bottom_tensor_view(),
+                             make_tuple(number<kMPerBlock>{}, number<kKPerBlock>{}),
+                             a_dram_block_window_tmp.get_window_origin(),
                              Policy::template MakeADramTileDistribution<Problem>());
 
         // A Reg tensor for store, also used for block GEMM
@@ -296,28 +291,28 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
         // B DRAM tile window for load
         auto b_copy_dram_window =
-            make_tile_window(b_dram_block_window_tmp.GetBottomTensorView(),
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
-                             b_dram_block_window_tmp.GetWindowOrigin(),
+            make_tile_window(b_dram_block_window_tmp.get_bottom_tensor_view(),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
+                             b_dram_block_window_tmp.get_window_origin(),
                              Policy::template MakeBDramTileDistribution<Problem>());
 
         // B LDS tile window for store
         auto b_copy_lds_window =
             make_tile_window(b_lds_block,
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
                              {0, 0},
-                             b_copy_dram_window.GetTileDistribution());
+                             b_copy_dram_window.get_tile_distribution());
 
         // B LDS tile for block GEMM
         auto b_lds_gemm_window = make_tile_window(
-            b_lds_block, make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}), {0, 0});
+            b_lds_block, make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}), {0, 0});
 
         // Block GEMM
         constexpr auto block_gemm = Policy::template GetBlockGemm<Problem>();
 
         // Acc register tile
         auto c_block_tile = decltype(block_gemm(
-            get_slice_tile(a_copy_reg_tensor, Sequence<0, 0>{}, Sequence<kMPerBlock, kKPerBlock>{}),
+            get_slice_tile(a_copy_reg_tensor, sequence<0, 0>{}, sequence<kMPerBlock, kKPerBlock>{}),
             b_lds_gemm_window)){};
 
         auto a_block_tile = load_tile(a_copy_dram_window);
@@ -330,8 +325,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
             set_slice_tile(a_copy_reg_tensor,
                            a_block_tile,
-                           Sequence<0, 0>{},
-                           Sequence<kMPerBlock, kKPerBlock>{});
+                           sequence<0, 0>{},
+                           sequence<kMPerBlock, kKPerBlock>{});
             a_block_tile = load_tile(a_copy_dram_window);
 
             store_tile(b_copy_lds_window, b_block_tile);
@@ -344,8 +339,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
                 block_gemm(c_block_tile,
                            get_slice_tile(a_copy_reg_tensor,
-                                          Sequence<0, (i_k0)*kKPerBlock>{},
-                                          Sequence<kMPerBlock, (i_k0 + 1) * kKPerBlock>{}),
+                                          sequence<0, (i_k0)*kKPerBlock>{},
+                                          sequence<kMPerBlock, (i_k0 + 1) * kKPerBlock>{}),
                            b_copy_lds_window);
 
                 block_sync_lds();
@@ -355,8 +350,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
                 set_slice_tile(a_copy_reg_tensor,
                                a_block_tile,
-                               Sequence<0, (i_k0 + 1) * kKPerBlock>{},
-                               Sequence<kMPerBlock, (i_k0 + 2) * kKPerBlock>{});
+                               sequence<0, (i_k0 + 1) * kKPerBlock>{},
+                               sequence<kMPerBlock, (i_k0 + 2) * kKPerBlock>{});
                 a_block_tile = load_tile(a_copy_dram_window);
 
                 store_tile(b_copy_lds_window, b_block_tile);
@@ -370,16 +365,16 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
             block_gemm(c_block_tile,
                        get_slice_tile(a_copy_reg_tensor,
-                                      Sequence<0, (k_loops - 2) * kKPerBlock>{},
-                                      Sequence<kMPerBlock, (k_loops - 1) * kKPerBlock>{}),
+                                      sequence<0, (k_loops - 2) * kKPerBlock>{},
+                                      sequence<kMPerBlock, (k_loops - 1) * kKPerBlock>{}),
                        b_copy_lds_window);
 
             block_sync_lds();
 
             set_slice_tile(a_copy_reg_tensor,
                            a_block_tile,
-                           Sequence<0, (k_loops - 1) * kKPerBlock>{},
-                           Sequence<kMPerBlock, k_loops * kKPerBlock>{});
+                           sequence<0, (k_loops - 1) * kKPerBlock>{},
+                           sequence<kMPerBlock, k_loops * kKPerBlock>{});
 
             store_tile(b_copy_lds_window, b_block_tile);
 
@@ -387,12 +382,16 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
             block_gemm(c_block_tile,
                        get_slice_tile(a_copy_reg_tensor,
-                                      Sequence<0, (k_loops - 1) * kKPerBlock>{},
-                                      Sequence<kMPerBlock, (k_loops)*kKPerBlock>{}),
+                                      sequence<0, (k_loops - 1) * kKPerBlock>{},
+                                      sequence<kMPerBlock, (k_loops)*kKPerBlock>{}),
                        b_copy_lds_window);
         }
 
-        store_tile(a_reg_block_tensor_tmp, a_copy_reg_tensor);
+        // store_tile(a_reg_block_tensor_tmp, a_copy_reg_tensor);
+        set_slice_tile(a_reg_block_tensor_tmp,
+                       a_copy_reg_tensor,
+                       sequence<0, 0>{},
+                       sequence<kMPerBlock, k_loops * kKPerBlock>{});
 
         return c_block_tile;
     }
@@ -404,11 +403,11 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
                                         const ARegBlockTensorTmp& a_reg_block_tensor_tmp,
                                         void* p_smem) const
     {
-        static_assert(is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
+        static_assert(std::is_same_v<BDataType, remove_cvref_t<typename BDramBlockWindowTmp::DataType>>,
                       "wrong!");
 
-        static_assert(kNPerBlock == BDramBlockWindowTmp{}.GetWindowLengths()[Number<0>{}] &&
-                          kKPerBlock == BDramBlockWindowTmp{}.GetWindowLengths()[Number<1>{}],
+        static_assert(kNPerBlock == BDramBlockWindowTmp{}.get_window_lengths()[number<0>{}] &&
+                          kKPerBlock == BDramBlockWindowTmp{}.get_window_lengths()[number<1>{}],
                       "wrong!");
 
         ignore = b_element_func;
@@ -420,7 +419,12 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
         // A Reg tensor for store, also used for block GEMM
         auto a_copy_reg_tensor = make_static_distributed_tensor<ADataType>(a_reg_block_dstr);
-        store_tile(a_copy_reg_tensor, a_reg_block_tensor_tmp);
+        // store_tile(a_copy_reg_tensor, a_reg_block_tensor_tmp);
+
+        set_slice_tile(a_copy_reg_tensor,
+                       a_reg_block_tensor_tmp,
+                       sequence<0, 0>{},
+                       sequence<kMPerBlock, k_loops * kKPerBlock>{});
 
         // B tile in LDS, blockWindow
         BDataType* p_b_lds =
@@ -430,32 +434,32 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
         // This tensor view used to construct both tile window for lds store and read, with buffer
         // address info
-        auto b_lds_block = make_tensor_view<AddressSpaceEnum::Lds>(p_b_lds, b_lds_block_desc);
+        auto b_lds_block = make_tensor_view<address_space_enum::lds>(p_b_lds, b_lds_block_desc);
 
         // B DRAM tile window for load
         auto b_copy_dram_window =
-            make_tile_window(b_dram_block_window_tmp.GetBottomTensorView(),
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
-                             b_dram_block_window_tmp.GetWindowOrigin(),
+            make_tile_window(b_dram_block_window_tmp.get_bottom_tensor_view(),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
+                             b_dram_block_window_tmp.get_window_origin(),
                              Policy::template MakeBDramTileDistribution<Problem>());
 
         // B LDS tile window for store
         auto b_copy_lds_window =
             make_tile_window(b_lds_block,
-                             make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}),
+                             make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}),
                              {0, 0},
-                             b_copy_dram_window.GetTileDistribution());
+                             b_copy_dram_window.get_tile_distribution());
 
         // B LDS tile for block GEMM
         auto b_lds_gemm_window = make_tile_window(
-            b_lds_block, make_tuple(Number<kNPerBlock>{}, Number<kKPerBlock>{}), {0, 0});
+            b_lds_block, make_tuple(number<kNPerBlock>{}, number<kKPerBlock>{}), {0, 0});
 
         // Block GEMM
         constexpr auto block_gemm = Policy::template GetBlockGemm<Problem>();
 
         // Acc register tile
         auto c_block_tile = decltype(block_gemm(
-            get_slice_tile(a_copy_reg_tensor, Sequence<0, 0>{}, Sequence<kMPerBlock, kKPerBlock>{}),
+            get_slice_tile(a_copy_reg_tensor, sequence<0, 0>{}, sequence<kMPerBlock, kKPerBlock>{}),
             b_lds_gemm_window)){};
 
         auto b_block_tile = load_tile(b_copy_dram_window);
@@ -474,8 +478,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
                 block_gemm(c_block_tile,
                            get_slice_tile(a_copy_reg_tensor,
-                                          Sequence<0, (i_k0)*kKPerBlock>{},
-                                          Sequence<kMPerBlock, (i_k0 + 1) * kKPerBlock>{}),
+                                          sequence<0, (i_k0)*kKPerBlock>{},
+                                          sequence<kMPerBlock, (i_k0 + 1) * kKPerBlock>{}),
                            b_copy_lds_window);
 
                 block_sync_lds();
@@ -493,8 +497,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
             block_gemm(c_block_tile,
                        get_slice_tile(a_copy_reg_tensor,
-                                      Sequence<0, (k_loops - 2) * kKPerBlock>{},
-                                      Sequence<kMPerBlock, (k_loops - 1) * kKPerBlock>{}),
+                                      sequence<0, (k_loops - 2) * kKPerBlock>{},
+                                      sequence<kMPerBlock, (k_loops - 1) * kKPerBlock>{}),
                        b_copy_lds_window);
 
             block_sync_lds();
@@ -505,8 +509,8 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
 
             block_gemm(c_block_tile,
                        get_slice_tile(a_copy_reg_tensor,
-                                      Sequence<0, (k_loops - 1) * kKPerBlock>{},
-                                      Sequence<kMPerBlock, (k_loops)*kKPerBlock>{}),
+                                      sequence<0, (k_loops - 1) * kKPerBlock>{},
+                                      sequence<kMPerBlock, (k_loops)*kKPerBlock>{}),
                        b_copy_lds_window);
         }
 
@@ -543,6 +547,4 @@ struct BlockGemmPipelineAGmemBGmemCRegV2<
     }
 };
 
-} // namespace block
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile

@@ -3,36 +3,31 @@
 #include "ck/tensor_description/tensor_descriptor_helper.hpp"
 #include "ck/tensor_description/tensor_adaptor.hpp"
 
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
-#include "ck/tile_program/tile/tile_gemm_shape.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
 
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 namespace policy_impl {
+
 // 3d + padding
 template <typename Problem>
 __host__ __device__ static constexpr auto make_a_lds_block_descriptor_3d_pad()
 {
-    using namespace ck;
-
     constexpr index_t kMPerBlock = Problem::BlockGemmShape::kM;
     constexpr index_t kKPerBlock = Problem::BlockGemmShape::kK;
 
     constexpr auto a_lds_block_desc_0 = make_naive_tensor_descriptor(
-        make_tuple(Number<kKPerBlock / 8>{}, Number<kMPerBlock>{}, Number<8>{}),
-        make_tuple(Number<(kMPerBlock + 1) * 8>{}, Number<8>{}, Number<1>{}),
-        Number<8>{},
-        Number<1>{});
+        make_tuple(number<kKPerBlock / 8>{}, number<kMPerBlock>{}, number<8>{}),
+        make_tuple(number<(kMPerBlock + 1) * 8>{}, number<8>{}, number<1>{}),
+        number<8>{},
+        number<1>{});
 
     constexpr auto a_lds_block_desc =
         transform_tensor_descriptor(a_lds_block_desc_0,
                                     make_tuple(make_pass_through_transform(kMPerBlock),
                                                make_merge_transform(make_tuple(kKPerBlock / 8, 8))),
-                                    make_tuple(Sequence<1>{}, Sequence<0, 2>{}),
-                                    make_tuple(Sequence<0>{}, Sequence<1>{}));
+                                    make_tuple(sequence<1>{}, sequence<0, 2>{}),
+                                    make_tuple(sequence<0>{}, sequence<1>{}));
 
     return a_lds_block_desc;
 }
@@ -41,23 +36,21 @@ __host__ __device__ static constexpr auto make_a_lds_block_descriptor_3d_pad()
 template <typename Problem>
 __host__ __device__ static constexpr auto make_b_lds_block_descriptor_3d_pad()
 {
-    using namespace ck;
-
     constexpr index_t kNPerBlock = Problem::BlockGemmShape::kN;
     constexpr index_t kKPerBlock = Problem::BlockGemmShape::kK;
 
     constexpr auto b_lds_block_desc_0 = make_naive_tensor_descriptor(
-        make_tuple(Number<kKPerBlock / 8>{}, Number<kNPerBlock>{}, Number<8>{}),
-        make_tuple(Number<(kNPerBlock + 1) * 8>{}, Number<8>{}, Number<1>{}),
-        Number<8>{},
-        Number<1>{});
+        make_tuple(number<kKPerBlock / 8>{}, number<kNPerBlock>{}, number<8>{}),
+        make_tuple(number<(kNPerBlock + 1) * 8>{}, number<8>{}, number<1>{}),
+        number<8>{},
+        number<1>{});
 
     constexpr auto b_lds_block_desc =
         transform_tensor_descriptor(b_lds_block_desc_0,
                                     make_tuple(make_pass_through_transform(kNPerBlock),
                                                make_merge_transform(make_tuple(kKPerBlock / 8, 8))),
-                                    make_tuple(Sequence<1>{}, Sequence<0, 2>{}),
-                                    make_tuple(Sequence<0>{}, Sequence<1>{}));
+                                    make_tuple(sequence<1>{}, sequence<0, 2>{}),
+                                    make_tuple(sequence<0>{}, sequence<1>{}));
 
     return b_lds_block_desc;
 }
@@ -65,28 +58,26 @@ __host__ __device__ static constexpr auto make_b_lds_block_descriptor_3d_pad()
 template <typename Problem, typename BlockGemm>
 __host__ __device__ static constexpr auto make_a_reg_block_descriptor()
 {
-    using namespace ck;
-
     constexpr index_t kMPerBlock = Problem::BlockGemmShape::kM;
     constexpr index_t kKPerBlock = Problem::BlockGemmShape::kK;
 
     constexpr auto config = BlockGemm::BlockGemmPolicy::template GetWarpGemmMWarpNWarp<Problem>();
 
-    using WG = remove_cvref_t<decltype(config.template At<0>())>;
+    using WG = remove_cvref_t<decltype(config.template get<0>())>;
 
-    constexpr index_t MWarp = config.template At<1>();
-    constexpr index_t NWarp = config.template At<2>();
+    constexpr index_t MWarp = config.template get<1>();
+    constexpr index_t NWarp = config.template get<2>();
 
     constexpr index_t MIterPerWarp = kMPerBlock / (MWarp * WG::kM);
     constexpr index_t KIterPerWarp = kKPerBlock / WG::kK;
 
     constexpr auto a_block_outer_dstr_encoding =
-        StaticTileDistributionEncoding<Sequence<NWarp>,
-                                       Tuple<Sequence<MIterPerWarp, MWarp>, Sequence<KIterPerWarp>>,
-                                       Tuple<Sequence<1, 0>>,
-                                       Tuple<Sequence<1, 0>>,
-                                       Sequence<1, 2>,
-                                       Sequence<0, 0>>{};
+        tile_distribution_encoding<sequence<NWarp>,
+                                   tuple<sequence<MIterPerWarp, MWarp>, sequence<KIterPerWarp>>,
+                                   tuple<sequence<1, 0>>,
+                                   tuple<sequence<1, 0>>,
+                                   sequence<1, 2>,
+                                   sequence<0, 0>>{};
 
     constexpr auto a_block_dstr_encode = detail::make_embed_tile_distribution_encoding(
         a_block_outer_dstr_encoding, typename WG::AWarpDstrEncoding{});
@@ -114,12 +105,12 @@ __host__ __device__ static constexpr auto make_a_dram_tile_distribution()
     constexpr index_t M0 = kMPerBlock / (M2 * M1);
 
     return make_static_tile_distribution(
-        StaticTileDistributionEncoding<Sequence<1>,
-                                       Tuple<Sequence<M0, M1, M2>, Sequence<K0, K1>>,
-                                       Tuple<Sequence<1>, Sequence<1, 2>>,
-                                       Tuple<Sequence<1>, Sequence<2, 0>>,
-                                       Sequence<1, 2>,
-                                       Sequence<0, 1>>{});
+        tile_distribution_encoding<sequence<1>,
+                                   tuple<sequence<M0, M1, M2>, sequence<K0, K1>>,
+                                   tuple<sequence<1>, sequence<1, 2>>,
+                                   tuple<sequence<1>, sequence<2, 0>>,
+                                   sequence<1, 2>,
+                                   sequence<0, 1>>{});
 }
 
 template <typename Problem, typename BlockGemm>
@@ -127,9 +118,9 @@ __host__ __device__ static constexpr auto make_a_dram_tile_distribution_skip_lds
 {
     constexpr auto config = BlockGemm::BlockGemmPolicy::template GetWarpGemmMWarpNWarp<Problem>();
 
-    using WG = remove_cvref_t<decltype(config.template At<0>())>;
+    using WG = remove_cvref_t<decltype(config.template get<0>())>;
 
-    constexpr index_t MWarp = config.template At<1>();
+    constexpr index_t MWarp = config.template get<1>();
 
     constexpr index_t kMPerBlock = Problem::BlockGemmShape::kM;
     constexpr index_t kKPerBlock = Problem::BlockGemmShape::kK;
@@ -145,12 +136,12 @@ __host__ __device__ static constexpr auto make_a_dram_tile_distribution_skip_lds
     constexpr index_t M0 = kMPerBlock / (M2 * M1);
 
     return make_static_tile_distribution(
-        StaticTileDistributionEncoding<Sequence<1>,
-                                       Tuple<Sequence<M0, M1, M2>, Sequence<K0, K1, K2>>,
-                                       Tuple<Sequence<1>, Sequence<2, 1>>,
-                                       Tuple<Sequence<1>, Sequence<1, 2>>,
-                                       Sequence<2, 1, 2>,
-                                       Sequence<0, 0, 2>>{});
+        tile_distribution_encoding<sequence<1>,
+                                   tuple<sequence<M0, M1, M2>, sequence<K0, K1, K2>>,
+                                   tuple<sequence<1>, sequence<2, 1>>,
+                                   tuple<sequence<1>, sequence<1, 2>>,
+                                   sequence<2, 1, 2>,
+                                   sequence<0, 0, 2>>{});
 }
 
 template <typename Problem>
@@ -171,23 +162,21 @@ __host__ __device__ static constexpr auto make_b_dram_tile_distribution()
     constexpr index_t N0 = kNPerBlock / (N2 * N1);
 
     return make_static_tile_distribution(
-        StaticTileDistributionEncoding<Sequence<1>,
-                                       Tuple<Sequence<N0, N1, N2>, Sequence<K0, K1>>,
-                                       Tuple<Sequence<1>, Sequence<1, 2>>,
-                                       Tuple<Sequence<1>, Sequence<2, 0>>,
-                                       Sequence<1, 2>,
-                                       Sequence<0, 1>>{});
+        tile_distribution_encoding<sequence<1>,
+                                   tuple<sequence<N0, N1, N2>, sequence<K0, K1>>,
+                                   tuple<sequence<1>, sequence<1, 2>>,
+                                   tuple<sequence<1>, sequence<2, 0>>,
+                                   sequence<1, 2>,
+                                   sequence<0, 1>>{});
 }
 
 template <typename Problem>
 __host__ __device__ static constexpr auto get_block_gemm()
 {
-    using BlockGemmPolicy = BlockGemmASmemBSmemCRegV1DefaultPolicy;
+    using BlockGemmPolicy = BlockGemmASmemBSmemCRegDefaultPolicy;
 
-    return BlockGemmASmemBSmemCRegV1<Problem, BlockGemmPolicy>{};
+    return BlockGemmASmemBSmemCReg<Problem, BlockGemmPolicy>{};
 }
 
 } // namespace policy_impl
-} // namespace block
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile

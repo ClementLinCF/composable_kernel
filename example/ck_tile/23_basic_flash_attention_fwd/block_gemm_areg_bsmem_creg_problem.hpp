@@ -6,9 +6,7 @@
 #include "ck/ck.hpp"
 #include "ck/utility/type.hpp"
 
-namespace ck {
-namespace tile_program {
-namespace block {
+namespace ck_tile {
 
 // Problem Description for BlockGemmARegBSmemCReg
 template <typename ADataType_,
@@ -26,6 +24,4 @@ struct BlockGemmARegBSmemCRegProblem
     static constexpr index_t kBlockSize = kBlockSize_;
 };
 
-} // namespace block
-} // namespace tile_program
-} // namespace ck
+} // namespace ck_tile

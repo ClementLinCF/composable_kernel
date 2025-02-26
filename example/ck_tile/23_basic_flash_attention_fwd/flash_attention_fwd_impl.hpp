@@ -4,21 +4,23 @@
 #pragma once
 
 #include "ck/utility/common_header.hpp"
-#include "ck/tensor_description/tensor_descriptor.hpp"
-#include "ck/tensor_description/tensor_descriptor_helper.hpp"
-#include "ck/tensor_description/tensor_adaptor.hpp"
 
-#include "ck/tile_program/tile/tile_distribution.hpp"
-#include "ck/tile_program/tile/tile_elementwise.hpp"
+#include "ck_tile/core.hpp"
+#include "ck_tile/ops/common.hpp"
+#include "ck_tile/ops/gemm/warp/warp_gemm.hpp"
+#include "ck_tile/core/tensor/tile_distribution.hpp"
+
 #include "tile_gemm_shape.hpp"
-#include "ck/tile_program/tile/slice_tile.hpp"
-#include "ck/tile_program/warp_tile/warp_gemm.hpp"
 #include "../22_basic_gemm/block_gemm_pipeline_agmem_bgmem_creg.hpp"
 
 #include "block_gemm_pipeline_agmem_bgmem_creg_v2_askiplds.hpp"
 #include "block_gemm_pipeline_problem.hpp"
 #include "block_gemm_areg_bsmem_creg_v1.hpp"
-#include "block_reduce.hpp"
+// #include "block_reduce.hpp"
+#include "ck_tile/ops/reduce.hpp"
+
+
+namespace ck_tile {
 
 // S[M0, N0] = Q[M0, K0] * K[N0, K0]
 // P[M0, N0] = Softmax(S[M0, N0])
@@ -31,40 +33,38 @@ template <typename QDataType,
           typename PDataType,
           typename OaccDataType,
           typename ODataType,
-          ck::index_t kBlockSize,
-          ck::index_t kHeadDim,
-          ck::index_t kM0PerBlock,
-          ck::index_t kN0PerBlock,
-          ck::index_t kK0PerBlock,
-          ck::index_t kN1PerBlock,
-          ck::index_t kK1PerBlock>
+          index_t kBlockSize,
+          index_t kHeadDim,
+          index_t kM0PerBlock,
+          index_t kN0PerBlock,
+          index_t kK0PerBlock,
+          index_t kN1PerBlock,
+          index_t kK1PerBlock>
 struct FlashAttentionFwdImpl
 {
     // block gemm0 pipeline
-    using BlockGemm0Problem = ck::tile_program::block::BlockGemmPipelineProblem<
+    using BlockGemm0Problem = BlockGemmPipelineProblem<
         QDataType,
         KDataType,
         SaccDataType,
         kBlockSize,
-        ck::tile_program::TileGemmShape<kM0PerBlock, kN0PerBlock, kK0PerBlock>>;
+        TileGemmShape<kM0PerBlock, kN0PerBlock, kK0PerBlock>>;
 
     using BlockGemm0Policy =
-        ck::tile_program::block::BlockGemmPipelineAGmemBGmemCRegV2SkipALdsPersistentQRegCachePolicy<
-            kHeadDim>;
+        BlockGemmPipelineAGmemBGmemCRegSkipALdsPersistentQRegCachePolicy<kHeadDim>;
 
     using BlockGemm0Pipeline =
-        ck::tile_program::block::BlockGemmPipelineAGmemBGmemCRegV2<BlockGemm0Problem,
-                                                                   BlockGemm0Policy>;
+        BlockGemmPipelineAGmemBGmemCReg<BlockGemm0Problem, BlockGemm0Policy>;
 
     // block gemm1
-    using BlockGemm1 = ck::tile_program::block::BlockGemmARegBSmemCRegV1<
-        ck::tile_program::block::BlockGemmARegBSmemCRegProblem<
+    using BlockGemm1 = BlockGemmARegBSmemCRegV1<
+        BlockGemmARegBSmemCRegProblem<
             PDataType,
             VDataType,
             OaccDataType,
             kBlockSize,
-            ck::tile_program::TileGemmShape<kM0PerBlock, kN1PerBlock, kK1PerBlock>>,
-        ck::tile_program::block::BlockGemmARegBSmemCRegV1DefaultPolicy>;
+            TileGemmShape<kM0PerBlock, kN1PerBlock, kK1PerBlock>>,
+        BlockGemmARegBSmemCRegV1DefaultPolicy>;
 
     // 3d, with padding
     __device__ static constexpr auto MakeVLdsBlockDescriptor()
@@ -80,26 +80,23 @@ struct FlashAttentionFwdImpl
         constexpr index_t kK1 = 4;
 
         constexpr auto b_lds_block_desc_0 = make_naive_tensor_descriptor(
-            make_tuple(Number<kKPerBlock / kK1>{}, Number<kNPerBlock>{}, Number<kK1>{}),
-            make_tuple(Number<(kNPerBlock + kPad) * kK1>{}, Number<kK1>{}, Number<1>{}),
-            Number<kK1>{},
-            Number<1>{});
+            make_tuple(number<kKPerBlock / kK1>{}, number<kNPerBlock>{}, number<kK1>{}),
+            make_tuple(number<(kNPerBlock + kPad) * kK1>{}, number<kK1>{}, number<1>{}),
+            number<kK1>{},
+            number<1>{});
 
         constexpr auto b_lds_block_desc = transform_tensor_descriptor(
             b_lds_block_desc_0,
             make_tuple(make_pass_through_transform(kNPerBlock),
-                       make_merge_transform(make_tuple(Number<kKPerBlock / kK1>{}, Number<kK1>{}))),
-            make_tuple(Sequence<1>{}, Sequence<0, 2>{}),
-            make_tuple(Sequence<0>{}, Sequence<1>{}));
+                       make_merge_transform(make_tuple(number<kKPerBlock / kK1>{}, number<kK1>{}))),
+            make_tuple(sequence<1>{}, sequence<0, 2>{}),
+            make_tuple(sequence<0>{}, sequence<1>{}));
 
         return b_lds_block_desc;
     }
 
     __device__ static constexpr auto MakeVDramTileDistribution()
     {
-        using namespace ck;
-        using namespace ck::tile_program;
-
         using BDataType = VDataType;
 
         constexpr index_t kNPerBlock = kN1PerBlock;
@@ -112,67 +109,61 @@ struct FlashAttentionFwdImpl
         constexpr index_t N0 = kNPerBlock / (N2 * N1);
 
         return make_static_tile_distribution(
-            StaticTileDistributionEncoding<Sequence<1>,
-                                           Tuple<Sequence<N0, N1, N2>, Sequence<K0, K1>>,
-                                           Tuple<Sequence<1>, Sequence<1, 2>>,
-                                           Tuple<Sequence<1>, Sequence<2, 0>>,
-                                           Sequence<1, 2>,
-                                           Sequence<0, 1>>{});
+            tile_distribution_encoding<sequence<1>,
+                                           tuple<sequence<N0, N1, N2>, sequence<K0, K1>>,
+                                           tuple<sequence<1>, sequence<1, 2>>,
+                                           tuple<sequence<1>, sequence<2, 0>>,
+                                           sequence<1, 2>,
+                                           sequence<0, 1>>{});
     }
 
-    __device__ static constexpr ck::index_t GetStaticLdsSize()
+    __device__ static constexpr index_t GetStaticLdsSize()
     {
-        using namespace ck;
-
-        return math::max(BlockGemm0Pipeline::GetStaticLdsSize(),
-                         static_cast<index_t>(MakeVLdsBlockDescriptor().GetElementSpaceSize() *
-                                              sizeof(VDataType)));
+        return max(BlockGemm0Pipeline::GetStaticLdsSize(),
+                   static_cast<index_t>(MakeVLdsBlockDescriptor().get_element_space_size() *
+                                        sizeof(VDataType)));
     }
 
     __device__ void operator()(const QDataType* q_ptr,
                                const KDataType* k_ptr,
                                const VDataType* v_ptr,
                                ODataType* o_ptr,
-                               const ck::index_t M0,
-                               const ck::index_t N0,
-                               const ck::index_t K0,
-                               const ck::index_t N1,
-                               const ck::index_t StrideQ,
-                               const ck::index_t StrideK,
-                               const ck::index_t StrideV,
-                               const ck::index_t StrideO,
-                               const ck::index_t iM0,
-                               const ck::index_t iN1) const
+                               const index_t M0,
+                               const index_t N0,
+                               const index_t K0,
+                               const index_t N1,
+                               const index_t StrideQ,
+                               const index_t StrideK,
+                               const index_t StrideV,
+                               const index_t StrideO,
+                               const index_t iM0,
+                               const index_t iN1) const
     {
-        using namespace ck;
-        using namespace ck::tile_program;
-        using namespace ck::tile_program::block;
-
-        constexpr auto I0 = Number<0>{};
-        constexpr auto I1 = Number<1>{};
+        constexpr auto I0 = number<0>{};
+        constexpr auto I1 = number<1>{};
 
         // allocate LDS
         __shared__ char smem_ptr[GetStaticLdsSize()];
 
         // Q/K/V DRAM and DRAM window
-        const auto q_dram = make_naive_tensor_view<AddressSpaceEnum::Global>(
-            q_ptr, make_tuple(M0, K0), make_tuple(StrideQ, 1), Number<32>{}, Number<1>{});
+        const auto q_dram = make_naive_tensor_view<address_space_enum::global>(
+            q_ptr, make_tuple(M0, K0), make_tuple(StrideQ, 1), number<32>{}, number<1>{});
 
-        const auto k_dram = make_naive_tensor_view<AddressSpaceEnum::Global>(
-            k_ptr, make_tuple(N0, K0), make_tuple(StrideK, 1), Number<32>{}, Number<1>{});
+        const auto k_dram = make_naive_tensor_view<address_space_enum::global>(
+            k_ptr, make_tuple(N0, K0), make_tuple(StrideK, 1), number<32>{}, number<1>{});
 
-        const auto v_dram = make_naive_tensor_view<AddressSpaceEnum::Global>(
-            v_ptr, make_tuple(N1, N0), make_tuple(StrideV, 1), Number<32>{}, Number<1>{});
+        const auto v_dram = make_naive_tensor_view<address_space_enum::global>(
+            v_ptr, make_tuple(N1, N0), make_tuple(StrideV, 1), number<32>{}, number<1>{});
 
         auto q_dram_window = make_tile_window(
-            q_dram, make_tuple(Number<kM0PerBlock>{}, Number<kK0PerBlock>{}), {iM0, 0});
+            q_dram, make_tuple(number<kM0PerBlock>{}, number<kK0PerBlock>{}), {iM0, 0});
 
         auto k_dram_window = make_tile_window(
-            k_dram, make_tuple(Number<kN0PerBlock>{}, Number<kK0PerBlock>{}), {0, 0});
+            k_dram, make_tuple(number<kN0PerBlock>{}, number<kK0PerBlock>{}), {0, 0});
 
         auto v_dram_window =
             make_tile_window(v_dram,
-                             make_tuple(Number<kN1PerBlock>{}, Number<kK1PerBlock>{}),
+                             make_tuple(number<kN1PerBlock>{}, number<kK1PerBlock>{}),
                              {iN1, 0},
                              MakeVDramTileDistribution());
 
@@ -182,11 +173,11 @@ struct FlashAttentionFwdImpl
 
         // V LDS and LDS window
         // V LDS occupies the same LDS allocation Q/K LDS
-        auto v_lds = make_tensor_view<AddressSpaceEnum::Lds>(reinterpret_cast<VDataType*>(smem_ptr),
-                                                             MakeVLdsBlockDescriptor());
+        auto v_lds = make_tensor_view<address_space_enum::lds>(reinterpret_cast<VDataType*>(smem_ptr),
+                                                               MakeVLdsBlockDescriptor());
 
         auto v_lds_window = make_tile_window(
-            v_lds, make_tuple(Number<kN1PerBlock>{}, Number<kK1PerBlock>{}), {0, 0});
+            v_lds, make_tuple(number<kN1PerBlock>{}, number<kK1PerBlock>{}), {0, 0});
 
         // Block GEMM0 pipeline and Block GEMM1
         constexpr auto gemm0_pipeline = BlockGemm0Pipeline{};
@@ -207,11 +198,11 @@ struct FlashAttentionFwdImpl
                                                             SaccBlockTileType{}));
 
         using MLBlockTileType = decltype(block_tile_reduce<SMPLComputeDataType>(
-            SBlockTileType{}, Sequence<1>{}, f_max, SMPLComputeDataType{0}));
+            SBlockTileType{}, sequence<1>{}, f_max, SMPLComputeDataType{0}));
 
         using OaccBlockTileType = decltype(gemm1(
             get_slice_tile(
-                PBlockTileType{}, Sequence<0, 0>{}, Sequence<kM0PerBlock, kK1PerBlock>{}),
+                PBlockTileType{}, sequence<0, 0>{}, sequence<kM0PerBlock, kK1PerBlock>{}),
             v_dram_window));
 
         // init Sacc, Oacc, M, L
@@ -221,7 +212,7 @@ struct FlashAttentionFwdImpl
         auto l     = MLBlockTileType{};
 
         tile_elementwise_inout([](auto& e) { e = 0; }, o_acc);
-        tile_elementwise_inout([](auto& e) { e = NumericLimits<SMPLComputeDataType>::Lowest(); },
+        tile_elementwise_inout([](auto& e) { e = std::numeric_limits<SMPLComputeDataType>::lowest(); },
                                m);
         tile_elementwise_inout([](auto& e) { e = 0; }, l);
 
@@ -246,7 +237,7 @@ struct FlashAttentionFwdImpl
 
             // m_local = rowmax(S{j})
             auto m_local = block_tile_reduce<SMPLComputeDataType>(
-                s, Sequence<1>{}, f_max, NumericLimits<SMPLComputeDataType>::Lowest());
+                s, sequence<1>{}, f_max, std::numeric_limits<SMPLComputeDataType>::lowest());
 
             block_tile_reduce_sync(m_local, f_max);
 
@@ -259,9 +250,9 @@ struct FlashAttentionFwdImpl
 
             // Pcompute{j}
             auto p_compute =
-                make_static_distributed_tensor<SMPLComputeDataType>(s.GetTileDistribution());
+                make_static_distributed_tensor<SMPLComputeDataType>(s.get_tile_distribution());
 
-            constexpr auto p_spans = decltype(p_compute)::GetDistributedSpans();
+            constexpr auto p_spans = decltype(p_compute)::get_distributed_spans();
 
             sweep_tile_span(p_spans[I0], [&](auto idx0) {
                 constexpr auto i_idx = make_tuple(idx0);
@@ -269,13 +260,13 @@ struct FlashAttentionFwdImpl
                 sweep_tile_span(p_spans[I1], [&](auto idx1) {
                     constexpr auto i_j_idx = make_tuple(idx0, idx1);
 
-                    p_compute(i_j_idx) = math::exp(s[i_j_idx] - m[i_idx]);
+                    p_compute(i_j_idx) = exp(s[i_j_idx] - m[i_idx]);
                 });
             });
 
             // rowsum(Pcompute{j})
             auto rowsum_p = block_tile_reduce<SMPLComputeDataType>(
-                p_compute, Sequence<1>{}, f_sum, SMPLComputeDataType{0});
+                p_compute, sequence<1>{}, f_sum, SMPLComputeDataType{0});
 
             block_tile_reduce_sync(rowsum_p, f_sum);
 
@@ -283,7 +274,7 @@ struct FlashAttentionFwdImpl
             sweep_tile_span(p_spans[I0], [&](auto idx0) {
                 constexpr auto i_idx = make_tuple(idx0);
 
-                const auto tmp = math::exp(m_old[i_idx] - m[i_idx]);
+                const auto tmp = exp(m_old[i_idx] - m[i_idx]);
 
                 l(i_idx) = tmp * l[i_idx] + rowsum_p[i_idx];
 
@@ -312,8 +303,8 @@ struct FlashAttentionFwdImpl
                     block_sync_lds();
                     gemm1(o_acc,
                           get_slice_tile(p,
-                                         Sequence<0, i_k1 * kK1PerBlock>{},
-                                         Sequence<kM0PerBlock, (i_k1 + 1) * kK1PerBlock>{}),
+                                         sequence<0, i_k1 * kK1PerBlock>{},
+                                         sequence<kM0PerBlock, (i_k1 + 1) * kK1PerBlock>{}),
                           v_lds_window);
                     block_sync_lds();
                     store_tile(v_lds_window, v);
@@ -325,8 +316,8 @@ struct FlashAttentionFwdImpl
                 block_sync_lds();
                 gemm1(o_acc,
                       get_slice_tile(p,
-                                     Sequence<0, (k1_loops - 1) * kK1PerBlock>{},
-                                     Sequence<kM0PerBlock, kN0PerBlock>{}),
+                                     sequence<0, (k1_loops - 1) * kK1PerBlock>{},
+                                     sequence<kM0PerBlock, kN0PerBlock>{}),
                       v_lds_window);
                 block_sync_lds();
             }
@@ -336,7 +327,7 @@ struct FlashAttentionFwdImpl
         } while(iN0 < N0);
 
         // Oacc
-        constexpr auto o_spans = decltype(o_acc)::GetDistributedSpans();
+        constexpr auto o_spans = decltype(o_acc)::get_distributed_spans();
 
         sweep_tile_span(o_spans[I0], [&](auto idx0) {
             constexpr auto i_idx = make_tuple(idx0);
@@ -354,16 +345,18 @@ struct FlashAttentionFwdImpl
         const auto o = tile_elementwise_in(type_convert<ODataType, OaccDataType>, o_acc);
 
         // O DRAM and O DRAM window
-        auto o_dram = make_naive_tensor_view<AddressSpaceEnum::Global>(
-            o_ptr, make_tuple(M0, N1), make_tuple(StrideO, 1), Number<32>{}, Number<1>{});
+        auto o_dram = make_naive_tensor_view<address_space_enum::global>(
+            o_ptr, make_tuple(M0, N1), make_tuple(StrideO, 1), number<32>{}, number<1>{});
 
         auto o_dram_window =
             make_tile_window(o_dram,
-                             make_tuple(Number<kM0PerBlock>{}, Number<kN1PerBlock>{}),
+                             make_tuple(number<kM0PerBlock>{}, number<kN1PerBlock>{}),
                              {iM0, iN1},
-                             o.GetTileDistribution());
+                             o.get_tile_distribution());
 
         // store O
         store_tile(o_dram_window, o);
     }
 };
+
+} // namespace ck_tile
