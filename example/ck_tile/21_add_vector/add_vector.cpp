@@ -1,12 +1,12 @@
 #include "ck_tile/host.hpp"
-#include "add.hpp"
+#include "add_vector.hpp"
 #include <cstring>
 
 auto create_args(int argc, char* argv[])
 {
     ck_tile::ArgParser arg_parser;
     arg_parser.insert("m", "10000", "m dimension")
-        .insert("n", "1", "n dimension")
+        .insert("n", "10000", "n dimension")
         .insert("v", "1", "cpu validation or not")
         .insert("prec", "fp16", "precision")
         .insert("warmup", "5", "cold iter")
@@ -78,8 +78,8 @@ bool run(const ck_tile::ArgParser& arg_parser)
     constexpr ck_tile::index_t kBlockSize  = 256;
     constexpr ck_tile::index_t kBlockPerCu = 1;
     ck_tile::index_t kGridSize             = (m / BlockTile::at(ck_tile::number<0>{}));
-    std::cout << "block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
-    std::cout << "grid size " << kGridSize << std::endl;
+    std::cout << "vector_add::block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
+    std::cout << "vector_add::grid size " << kGridSize << std::endl;
 
     using Shape = ck_tile::AddShape<BlockWarps, BlockTile, WarpTile, Vector>;
     using Porblem =
