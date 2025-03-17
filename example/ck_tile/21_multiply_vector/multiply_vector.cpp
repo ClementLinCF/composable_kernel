@@ -51,16 +51,48 @@ bool run(const ck_tile::ArgParser& arg_parser)
     // WarpTile: Dimension of one warp that covers a part of one block, this is the chunk of work that is assigned to a warp/wavefront
     // Vector: Dimension of one vector that covers a part of one warp, this is the chunk of work that is assigned to an individual thread
 
-    using BlockTile  = ck_tile::sequence<512>; // 4 Blocks that cover 512 elements in x (4 x 512 = 2048)
-    using WarpTile   = ck_tile::sequence<128>; // 4 Warps that cover 128 elements in x (4 x 128 = 512)
-    using Vector     = ck_tile::sequence<2>; // 64 Vector (one for each thread) that cover 2 elements in x (64 x 2 = 128)
-    using BlockWarps = ck_tile::sequence<4>; // 4 Warps in a block aligned in x direction to cover a block
+    // using BlockTile  = ck_tile::sequence<2048>;   // Each block covers 512 elements
+    // using WarpTile   = ck_tile::sequence<512>;   // Each warp processes 128 elements
+    // using Vector     = ck_tile::sequence<8>;   // 128 elements per warp
+    // using BlockWarps = ck_tile::sequence<4>;     // 4 warps per block (256 threads)
+
+
+    // BlockTile: 4096 , WarpTile: 512 , Vector: 4 , BlockWarps: 4
+    // Perf: 0.292732 ms, 3498.08 GB/s
+    // valid:n 
+    // BlockTile: 2048 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
+    // Perf: 0.420209 ms, 2436.88 GB/s
+    // valid:y
+    // BlockTile: 1024 , WarpTile: 64 , Vector: 1 , BlockWarps: 2
+    // Perf: 0.493575 ms, 2074.66 GB/s
+    // valid:y
+    // BlockTile: 1024 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
+    // Perf: 0.417731 ms, 2451.34 GB/s
+    // valid:y
+    // BlockTile: 512 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
+    // Perf: 0.424621 ms, 2411.56 GB/s
+    // valid:y
+    // BlockTile: 512 , WarpTile: 128 , Vector: 2 , BlockWarps: 4
+    // Perf: 0.550383 ms, 1860.52 GB/s
+    // valid:y
+
     
+    //gives Perf: 0.294477 ms, 3477.35 GB/
+    using BlockTile  = ck_tile::sequence<512>;   
+    using WarpTile   = ck_tile::sequence<64>;   
+    using Vector     = ck_tile::sequence<1>;    
+    using BlockWarps = ck_tile::sequence<4>;     
+    
+    // more BlockWarps is giving more performance
+
     constexpr ck_tile::index_t kBlockSize  = 256; // 256 threads in a block
-    constexpr ck_tile::index_t kBlockPerCu = 8; // 1 block per CU
+    constexpr ck_tile::index_t kBlockPerCu = 1; // 1 block per CU
     ck_tile::index_t kGridSize             = (m / BlockTile::at(ck_tile::number<0>{})); // gridDim
-    std::cout << "multiply_vector::block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
-    std::cout << "multiply_vector::grid size " << kGridSize << std::endl;
+    // print BlockTile size, WarpTile size, Vector size and BlockWarps size
+    std::cout << "BlockTile: " << BlockTile::at(ck_tile::number<0>{}) << " , " << "WarpTile: " << WarpTile::at(ck_tile::number<0>{}) << " , " 
+    << "Vector: " << Vector::at(ck_tile::number<0>{}) << " , " << "BlockWarps: " << BlockWarps::at(ck_tile::number<0>{}) << std::endl; 
+    //std::cout << "multiply_vector::block x-size = " << BlockTile::at(ck_tile::number<0>{}) << std::endl;
+    //std::cout << "multiply_vector::grid size " << kGridSize << std::endl;
 
     using Shape = ck_tile::MultiplyShape<BlockWarps, BlockTile, WarpTile, Vector>; // struct that holds the configuration of the block, warp and vector tiles
     using Problem =

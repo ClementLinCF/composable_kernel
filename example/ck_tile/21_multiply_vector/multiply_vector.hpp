@@ -59,7 +59,6 @@ struct MultiplyDefaultPolicy
         return make_static_tile_distribution(
             tile_distribution_encoding<
                 sequence<>,
-                // Simplified distribution focusing only on M dimension (vector)
                 tuple<sequence<S::Repeat_M, S::WarpPerBlock_M, S::ThreadPerWarp_M, S::Vector_M>>,
                 tuple<sequence<1>, sequence<1>>,
                 tuple<sequence<1>, sequence<2>>,
