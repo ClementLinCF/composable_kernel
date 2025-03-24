@@ -6,7 +6,7 @@ auto create_args(int argc, char* argv[])
 {   
     // list of arguments that the kernel can accept (easily customizable)
     ck_tile::ArgParser arg_parser;
-    arg_parser.insert("m", "256000000", "m dimension")
+    arg_parser.insert("m", "1024", "m dimension")
         .insert("v", "1", "cpu validation or not")
         .insert("prec", "fp16", "precision")
         .insert("warmup", "5", "cold iter")
@@ -29,11 +29,11 @@ bool run(const ck_tile::ArgParser& arg_parser)
     int repeat         = arg_parser.get_int("repeat");
 
     
-    ck_tile::HostTensor<XDataType> x_host_a({m}); // creating a 1D tensor of size m, if you pass {m, 1} it will create a 2D tensor of size m x n
-    ck_tile::HostTensor<XDataType> x_host_b({m});
+    ck_tile::HostTensor<XDataType> x_host_a({m}); // creating a 1D tensor of size m (8192 x 1)
+    ck_tile::HostTensor<XDataType> x_host_b({m}); // creating a 1D tensor of size m (8192 x 1)
 
-    ck_tile::HostTensor<YDataType> y_host_ref({m});
-    ck_tile::HostTensor<YDataType> y_host_dev({m});
+    ck_tile::HostTensor<YDataType> y_host_ref({m}); // creating a 1D tensor of size m (8192 x 1)
+    ck_tile::HostTensor<YDataType> y_host_dev({m}); // creating a 1D tensor of size m (8192 x 1)
 
     ck_tile::FillUniformDistribution<XDataType>{-5.f, 5.f}(x_host_a);
     ck_tile::FillUniformDistribution<XDataType>{-5.f, 5.f}(x_host_b);
@@ -43,7 +43,7 @@ bool run(const ck_tile::ArgParser& arg_parser)
     ck_tile::DeviceMem y_buf(y_host_dev.get_element_space_size_in_bytes());
 
     x_buf_a.ToDevice(x_host_a.data()); // copy the data from host to device
-    x_buf_b.ToDevice(x_host_b.data());
+    x_buf_b.ToDevice(x_host_b.data()); // copy the data from host to device
 
     // Configuring the block tile, warp tile and thread tile sizes
     // BlockTile: Dimension of one block that covers a part of the entire problem size
@@ -51,42 +51,17 @@ bool run(const ck_tile::ArgParser& arg_parser)
     // WarpTile: Dimension of one warp that covers a part of one block, this is the chunk of work that is assigned to a warp/wavefront
     // Vector: Dimension of one vector that covers a part of one warp, this is the chunk of work that is assigned to an individual thread
 
-    // using BlockTile  = ck_tile::sequence<2048>;   // Each block covers 512 elements
-    // using WarpTile   = ck_tile::sequence<512>;   // Each warp processes 128 elements
-    // using Vector     = ck_tile::sequence<8>;   // 128 elements per warp
-    // using BlockWarps = ck_tile::sequence<4>;     // 4 warps per block (256 threads)
-
-
-    // BlockTile: 4096 , WarpTile: 512 , Vector: 4 , BlockWarps: 4
-    // Perf: 0.292732 ms, 3498.08 GB/s
-    // valid:n 
-    // BlockTile: 2048 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
-    // Perf: 0.420209 ms, 2436.88 GB/s
-    // valid:y
-    // BlockTile: 1024 , WarpTile: 64 , Vector: 1 , BlockWarps: 2
-    // Perf: 0.493575 ms, 2074.66 GB/s
-    // valid:y
-    // BlockTile: 1024 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
-    // Perf: 0.417731 ms, 2451.34 GB/s
-    // valid:y
-    // BlockTile: 512 , WarpTile: 64 , Vector: 1 , BlockWarps: 4
-    // Perf: 0.424621 ms, 2411.56 GB/s
-    // valid:y
-    // BlockTile: 512 , WarpTile: 128 , Vector: 2 , BlockWarps: 4
-    // Perf: 0.550383 ms, 1860.52 GB/s
-    // valid:y
-
     
-    //gives Perf: 0.294477 ms, 3477.35 GB/
-    using BlockTile  = ck_tile::sequence<512>;   
-    using WarpTile   = ck_tile::sequence<64>;   
-    using Vector     = ck_tile::sequence<1>;    
-    using BlockWarps = ck_tile::sequence<4>;     
-    
-    // more BlockWarps is giving more performance
 
     constexpr ck_tile::index_t kBlockSize  = 256; // 256 threads in a block
     constexpr ck_tile::index_t kBlockPerCu = 1; // 1 block per CU
+
+    using BlockTile  = ck_tile::sequence<1024>; // 4096 elements
+    using WarpTile = ck_tile::sequence<256>; //
+    using Vector = ck_tile::sequence<4>; // 4 * 64 = 256 elements
+    
+    using BlockWarps = ck_tile::sequence<4>; // each Block is like in 4 sub divisions
+
     ck_tile::index_t kGridSize             = (m / BlockTile::at(ck_tile::number<0>{})); // gridDim
     // print BlockTile size, WarpTile size, Vector size and BlockWarps size
     std::cout << "BlockTile: " << BlockTile::at(ck_tile::number<0>{}) << " , " << "WarpTile: " << WarpTile::at(ck_tile::number<0>{}) << " , " 
@@ -95,6 +70,20 @@ bool run(const ck_tile::ArgParser& arg_parser)
     //std::cout << "multiply_vector::grid size " << kGridSize << std::endl;
 
     using Shape = ck_tile::MultiplyShape<BlockWarps, BlockTile, WarpTile, Vector>; // struct that holds the configuration of the block, warp and vector tiles
+    
+    std::cout << "Shape::Block_M: " << Shape::Block_M << std::endl;
+    std::cout << "Shape::Warp_M: " << Shape::Warp_M << std::endl;
+    std::cout << "Shape::WarpPerBlock_M: " << Shape::WarpPerBlock_M << std::endl;
+    std::cout << "Shape::Vector_M: " << Shape::Vector_M << std::endl;
+    std::cout << "Shape::ThreadPerWarp_M: " << Shape::ThreadPerWarp_M << std::endl;
+    std::cout << "Shape::Repeat_M: " << Shape::Repeat_M << std::endl;
+
+    // Repeat_M * WarpPerBlock_M * ThreadPerWarp_M * Vector_M = Block_M
+    //  4*4*64*4 = 4096
+    assert(Shape::Repeat_M  == Shape::Block_M / (Shape::WarpPerBlock_M * Shape::Warp_M));
+    printf("assertion Repeat_M == Block_M / (WarpPerBlock_N * Warp_N) passed\n");
+    
+
     using Problem =
         ck_tile::MultiplyProblem<XDataType, ComputeDataType, YDataType, Shape>; // struct that holds the problem size and the data types and kernel configurations
 

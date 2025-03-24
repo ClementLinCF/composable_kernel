@@ -14,27 +14,27 @@ template <typename BlockWarps, // num warps along seq<M, N>
           typename Vector>     // contiguous pixels(vector size) along seq<M, N>
 struct MultiplyShape
 {
-    static constexpr index_t Block_M = BlockTile::at(number<0>{});
+    static constexpr index_t Block_M = BlockTile::at(number<0>{}); // number of elements in a block
     //static constexpr index_t Block_N = BlockTile::at(number<1>{});
 
-    static constexpr index_t Warp_M = WarpTile::at(number<0>{});
+    static constexpr index_t Warp_M = WarpTile::at(number<0>{}); // number of elements in a warptile
     //static constexpr index_t Warp_N = WarpTile::at(number<1>{});
 
-    static constexpr index_t Vector_M = Vector::at(number<0>{});
+    static constexpr index_t Vector_M = Vector::at(number<0>{}); // number of elements in a vector for one thread
     //static constexpr index_t Vector_N = Vector::at(number<1>{});
 
     // TODO: calculate it from BLOCK_M, BLOCK_N, WARP_M, WARP_N
-    static constexpr index_t WarpPerBlock_M = BlockWarps::at(number<0>{});
+    static constexpr index_t WarpPerBlock_M = BlockWarps::at(number<0>{}); // number of warps in a block 
     //static constexpr index_t WarpPerBlock_N = BlockWarps::at(number<1>{});
 
-    static constexpr index_t ThreadPerWarp_M = Warp_M / Vector_M;
+    static constexpr index_t ThreadPerWarp_M = Warp_M / Vector_M; // number of threads in a warp
     //static constexpr index_t ThreadPerWarp_N = Warp_N / Vector_N;
 
-    static constexpr index_t Repeat_M = Block_M / (WarpPerBlock_M * Warp_M);
+    static constexpr index_t Repeat_M = Block_M / (WarpPerBlock_M * Warp_M); // 4026/(4*256) = 4
     //static constexpr index_t Repeat_N = Block_N / (WarpPerBlock_N * Warp_N);
 
     static constexpr index_t BlockSize =
-        warpSize * reduce_on_sequence(BlockWarps{}, multiplies{}, number<1>{});
+        64 * reduce_on_sequence(BlockWarps{}, multiplies{}, number<1>{});
 };
 
 template <typename XDataType_,
@@ -65,7 +65,7 @@ struct MultiplyDefaultPolicy
                 sequence<1, 1>,
                 sequence<0, 3>>{});
     }
-};
+};   
 
 template <typename Problem_, typename Policy_ = MultiplyDefaultPolicy>
 struct MultiplyVector
@@ -80,10 +80,15 @@ struct MultiplyVector
     CK_TILE_DEVICE void operator()(const XDataType* p_x_a, const XDataType* p_x_b, YDataType* p_y, index_t M) const
     {
         using S = typename Problem::BlockShape;
+        
+        printf("blockID: %d\n", get_block_id());
+        printf("warpID: %d\n", get_warp_id());
+
+        //printf("M: %d\n", M);
 
         // Create 1D tensor views for the vectors
         const auto x_m_a = make_naive_tensor_view<address_space_enum::global>(
-            p_x_a, make_tuple(M), make_tuple(1), number<1>{});
+            p_x_a, make_tuple(M), make_tuple(1), number<1>{}); 
         
         const auto x_m_b = make_naive_tensor_view<address_space_enum::global>(
             p_x_b, make_tuple(M), make_tuple(1), number<1>{});
@@ -91,14 +96,16 @@ struct MultiplyVector
         const auto y_m = make_naive_tensor_view<address_space_enum::global>(
             p_y, make_tuple(M), make_tuple(1), number<1>{});
 
+        //printf("M1: %d\n", M);
+
         // Calculate starting index for this block
-        const auto iM = get_block_id() * S::Block_M;
+        const auto iM = get_block_id() * S::Block_M; // 4096
 
         // Create tile windows for each vector
         // x_window_a and x_window_b are tile windows
         // they define a mapping from the global tensor view to the tile view
         auto x_window_a = make_tile_window(x_m_a, // global tensor view
-                                         make_tuple(number<S::Block_M>{}), // tile dimensions
+                                         make_tuple(number<S::Block_M>{}), // block dimensions
                                          {iM}, // starting index
                                          Policy::template MakeXBlockTileDistribution<Problem>()); // distribution
 
@@ -117,14 +124,18 @@ struct MultiplyVector
         const auto xb = load_tile(x_window_b);
         auto y_compute = load_tile(y_window);
 
+        //printf("M2: %d\n", M);
+
         // Process the vector multiplication
         constexpr auto spans = decltype(xa)::get_distributed_spans(); // shape of the tile
-        sweep_tile_span(spans[number<0>{}], [&](auto idx) { // iterate over the tile
+        sweep_tile_span(spans[number<0>{}], [&](auto idx) { // iterate over the tile // idx+=4
             const auto tile_idx = make_tuple(idx);
             const auto a_val = type_convert<ComputeDataType>(xa[tile_idx]);
             const auto b_val = type_convert<ComputeDataType>(xb[tile_idx]);
             y_compute(tile_idx) = a_val * b_val;
+            
         });
+        //printf("M3: %d\n", M);
 
         // Store results
         store_tile(y_window, cast_tile<YDataType>(y_compute)); // store the result back to global tensor view
