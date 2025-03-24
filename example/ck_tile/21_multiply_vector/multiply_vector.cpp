@@ -53,12 +53,12 @@ bool run(const ck_tile::ArgParser& arg_parser)
 
     
 
-    constexpr ck_tile::index_t kBlockSize  = 256; // 256 threads in a block
-    constexpr ck_tile::index_t kBlockPerCu = 1; // 1 block per CU
+    constexpr ck_tile::index_t kBlockSize  = 256; 
+    constexpr ck_tile::index_t kBlockPerCu = 1; 
 
-    using BlockTile  = ck_tile::sequence<1024>; // 4096 elements
-    using WarpTile = ck_tile::sequence<256>; //
-    using Vector = ck_tile::sequence<4>; // 4 * 64 = 256 elements
+    using BlockTile  = ck_tile::sequence<1024>; 
+    using WarpTile = ck_tile::sequence<256>; 
+    using Vector = ck_tile::sequence<4>; 
     
     using BlockWarps = ck_tile::sequence<4>; // each Block is like in 4 sub divisions
 
