@@ -11,14 +11,12 @@ namespace ck_tile {
 
 template <typename XDataType, typename YDataType>
 CK_TILE_HOST void
-reference_add(const HostTensor<XDataType>& xa_m_n, const HostTensor<XDataType>& xb_m_n, HostTensor<YDataType>& y_m_n)
+reference_multiply_vector(const HostTensor<XDataType>& xa_m_n, const HostTensor<XDataType>& xb_m_n, HostTensor<YDataType>& y_m_n)
 {
     auto f = [&](auto m) {
-        const int N = 1;
-
+        const int N = 1; // because in our example we only have 1D tensor, example/multiply_vector.cpp
         for(int n = 0; n < N; ++n)
         {
-            // y_m_n(m, n) = ck_tile::type_convert<YDataType>(xa_m_n(m, n)) + ck_tile::type_convert<YDataType>(xb_m_n(m, n));
             y_m_n(m, n) = ck_tile::type_convert<YDataType>(xa_m_n(m, n)) * ck_tile::type_convert<YDataType>(xb_m_n(m, n));
         }
     };
